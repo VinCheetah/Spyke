@@ -2,26 +2,35 @@
 Modèles liés aux organisations (Club, Equipe, Saison, Competition).
 """
 
-from typing import Optional
 from dataclasses import dataclass, field
 
-from spyke.domain.enums import Gender, Category, Division, Echelon
-
 from spyke.domain.entities.personne import CoachMatch, PlayerMatch
-from spyke.domain.types import Date, LeagueId, SeasonId, TeamMatchId, ClubId, CompetitionId, MatchId, CodeClub, TeamSeasonId, Coordinate
-
+from spyke.domain.enums import Category, Division, Echelon, Gender
+from spyke.domain.types import (
+    ClubId,
+    CodeClub,
+    CompetitionId,
+    Coordinate,
+    Date,
+    LeagueId,
+    MatchId,
+    SeasonId,
+    TeamMatchId,
+    TeamSeasonId,
+)
 
 
 @dataclass
 class Season:
     """Données d'une saison sportive."""
+
     start_date: Date
     end_date: Date
-    
+
     @property
     def code(self):
         return f"{self.start_date.year}-{self.end_date.year}"
-    
+
     @classmethod
     def from_code(cls, code: str) -> "Season":
         """Crée une instance de Season à partir d'un code de saison."""
@@ -37,11 +46,12 @@ class Season:
 @dataclass
 class Competition:
     """Données fondamentales d'une compétition."""
+
     id: CompetitionId
     name: str
     code_competition: str
     organizer_id: LeagueId
-    
+
     gender: Gender
     category: Category
     echelon: Echelon
@@ -51,26 +61,28 @@ class Competition:
 @dataclass
 class Club:
     """Club de volleyball."""
+
     id: ClubId
     name: str
     code_ffvb: CodeClub
-    city: Optional[str]
-    departement: Optional[str]
-    league_id: Optional[LeagueId] = None
-    comitee_id: Optional[LeagueId] = None
-    adresse_siege: Optional[str] = None
-    email: Optional[str] = None
-    website: Optional[str] = None
-    phone_number: Optional[str] = None
+    city: str | None
+    departement: str | None
+    league_id: LeagueId | None = None
+    comitee_id: LeagueId | None = None
+    adresse_siege: str | None = None
+    email: str | None = None
+    website: str | None = None
+    phone_number: str | None = None
     colors: list[str] = field(default_factory=list[str])
-    president: Optional[str] = None
-    correspondant_name: Optional[str] = None
-    coordinate: Optional[Coordinate] = None
+    president: str | None = None
+    correspondant_name: str | None = None
+    coordinate: Coordinate | None = None
 
 
 @dataclass
 class TeamMatch:
     """Équipe participant à une compétition."""
+
     id: TeamMatchId
     name: str
     match_id: MatchId
@@ -78,13 +90,13 @@ class TeamMatch:
     players: list[PlayerMatch]
     liberos: list[PlayerMatch]
     coachs: list[CoachMatch]
-    
-    
+
+
 @dataclass
 class TeamSeason:
     """Équipe pour une saison spécifique."""
+
     id: TeamSeasonId
     season_id: SeasonId
     competition_id: CompetitionId
     club_id: ClubId
-    

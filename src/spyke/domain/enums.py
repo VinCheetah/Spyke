@@ -2,18 +2,20 @@
 Énumérations métier pour PyVolley.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class Gender(str, Enum):
+class Gender(StrEnum):
     """Genre de la compétition ou de l'équipe."""
+
     MASCULIN = "MASCULIN"
     FEMININ = "FEMININ"
     MIXTE = "MIXTE"
 
 
-class Category(str, Enum):
+class Category(StrEnum):
     """Catégorie d'âge FFVB."""
+
     SENIOR = "SENIOR"
     M21 = "M21"
     M20 = "M20"
@@ -26,8 +28,9 @@ class Category(str, Enum):
     VETERAN = "VETERAN"
 
 
-class Division(str, Enum):
+class Division(StrEnum):
     """Niveau d'échelon de compétition."""
+
     PRO_A = "PRO A"
     PRO_B = "PRO B"
     ELITE = "ELITE"
@@ -49,35 +52,38 @@ class Division(str, Enum):
     DEPARTEMENTALE_2 = "DEPARTEMENTALE 2"
     DEPARTEMENTALE_3 = "DEPARTEMENTALE 3"
     LOISIR = "LOISIR"
-    
-    
-class Echelon(str, Enum):
+
+
+class Echelon(StrEnum):
     INTERNATIONAL = "INTERNATIONAL"
     NATIONAL = "NATIONAL"
     REGIONAL = "REGIONAL"
     DEPARTEMENTAL = "DEPARTEMENTAL"
 
 
-class TypeSanction(str, Enum):
+class TypeSanction(StrEnum):
     """Type de sanction sportive FFVB."""
+
     AVERTISSEMENT = "A"  # Carton jaune
-    PENALITE = "P"       # Carton rouge = point adverse
-    EXPULSION = "E"      # Exclusion du set
+    PENALITE = "P"  # Carton rouge = point adverse
+    EXPULSION = "E"  # Exclusion du set
     DISQUALIFICATION = "D"  # Exclusion du match
 
 
-class RoleReferee(str, Enum):
+class RoleReferee(StrEnum):
     """Rôle de l'arbitre sur une feuille de match."""
+
     PREMIER = "1er"
     SECOND = "2ème"
     MARQUEUR = "Marqueur"
     MARQUEUR_ASSISTANT = "Marqueur assistant"
     RESPONSABLE_SALLE = "Responsable de salle"
     JUGE_LIGNE = "Juge de ligne"
-    
-    
-class RolePlayer(str, Enum):
+
+
+class RolePlayer(StrEnum):
     """Rôles officiels et tactiques d'un joueur de volleyball."""
+
     PASSEUR = "PASSEUR"
     POINTU = "POINTU"
     CENTRAL = "CENTRAL"
@@ -85,22 +91,25 @@ class RolePlayer(str, Enum):
     LIBERO = "LIBERO"
     POLYVALENT = "POLYVALENT"
     INDETERMINE = "INDETERMINE"
-    
 
-class RoleCoach(str, Enum):
+
+class RoleCoach(StrEnum):
     """Rôle de l'entraîneur sur une feuille de match."""
+
     ENTRAINEUR = "ENTRAINEUR"
     ASSISTANT = "ASSISTANT"
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     """Côté d'une équipe sur le terrain."""
+
     A = "A"
     B = "B"
-    
-    
-class MatchStatus(str, Enum):
+
+
+class MatchStatus(StrEnum):
     """Statut d'un match de volleyball."""
+
     SCHEDULED = "SCHEDULED"
     PLAYED = "PLAYED"
     POSTPONED = "POSTPONED"
