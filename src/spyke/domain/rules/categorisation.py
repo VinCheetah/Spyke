@@ -1,7 +1,7 @@
-from spyke.domain.enums import Category
-import unicodedata
 import re
+import unicodedata
 
+from spyke.domain.enums import Category
 
 _RE_SPACES = re.compile(r"\s+")
 

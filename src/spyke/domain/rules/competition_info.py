@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from spyke.domain.enums import Division, Category, PlayFormat, PlayVariant, Echelon
+
 from spyke.domain.entities.organisation import League
+from spyke.domain.enums import Category, Division, Echelon, PlayFormat, PlayVariant
 from spyke.domain.rules.categorisation import is_youth_category, normalize_text_upper
 
 
