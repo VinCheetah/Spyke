@@ -54,7 +54,7 @@ class CodeClub(int):
     def __new__(cls, valeur: int):
         # Validation avant la création de l'objet
         entier = super().__new__(cls, valeur)
-        if not (10e6 <= entier < 10e7):
+        if not (1_000_000 <= entier < 10_000_000):
             raise ValueError(f"La valeur {entier} est hors de la plage [1000000..9999999]")
         return entier
 

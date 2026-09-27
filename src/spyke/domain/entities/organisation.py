@@ -38,7 +38,7 @@ class Season:
     end_date: Date
 
     @property
-    def code(self):
+    def code(self) -> str:
         return f"{self.start_date.year}-{self.end_date.year}"
 
     @classmethod
@@ -46,6 +46,8 @@ class Season:
         """Crée une instance de Season à partir d'un code de saison."""
         try:
             start_year, end_year = map(int, code.split("-"))
+            if end_year != start_year + 1:
+                raise ValueError
             start_date = Date(start_year, 9, 1)
             end_date = Date(end_year, 8, 31)
             return cls(start_date=start_date, end_date=end_date)

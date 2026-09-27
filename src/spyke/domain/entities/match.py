@@ -18,6 +18,7 @@ from spyke.domain.types import (
 )
 
 
+@dataclass
 class Formation:
     position_1: PlayerMatch | None = None  # Arrière droit (serveur)
     position_2: PlayerMatch | None = None  # Avant droit
@@ -66,6 +67,7 @@ class SetScore:
         return None
 
 
+@dataclass
 class MatchScore:
     """Score d'un match de volleyball."""
 
