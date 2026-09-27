@@ -18,12 +18,10 @@ class Category(StrEnum):
 
     SENIOR = "SENIOR"
     M21 = "M21"
-    M20 = "M20"
     M18 = "M18"
     M15 = "M15"
     M13 = "M13"
     M11 = "M11"
-    M9 = "M9"
     JEUNES = "JEUNES"
     VETERAN = "VETERAN"
 
@@ -35,8 +33,10 @@ class Division(StrEnum):
     PRO_B = "PRO B"
     ELITE = "ELITE"
     ELITE_AVENIR = "ELITE AVENIR"
+    NATIONALE_1 = "NATIONALE 1"
     NATIONALE_2 = "NATIONALE 2"
     NATIONALE_3 = "NATIONALE 3"
+    NATIONALE = "NATIONALE"
     COUPE_DE_FRANCE = "COUPE DE FRANCE"
     COUPE_DE_FRANCE_BEACH = "COUPE DE FRANCE BEACH"
     COUPE_DE_FRANCE_ASSIS = "COUPE DE FRANCE ASSIS"
@@ -46,12 +46,19 @@ class Division(StrEnum):
     REGIONALE_1 = "REGIONALE 1"
     REGIONALE = "REGIONALE"
     REGIONALE_2 = "REGIONALE 2"
+    REGIONALE_3 = "REGIONALE 3"
+    REGIONALE_4 = "REGIONALE 4"
+    JEUNES_ELITE = "JEUNES ELITE"
+    JEUNES_REGIONALE = "JEUNES REGIONALE"
     PRE_REGIONALE = "PRE_REGIONALE"
     DEPARTEMENTALE_1 = "DEPARTEMENTALE 1"
     DEPARTEMENTALE = "DEPARTEMENTALE"
     DEPARTEMENTALE_2 = "DEPARTEMENTALE 2"
     DEPARTEMENTALE_3 = "DEPARTEMENTALE 3"
+    DEPARTEMENTALE_4 = "DEPARTEMENTALE 4"
+    JEUNES_DEPARTEMENTALE = "JEUNES DEPARTEMENTALE"
     LOISIR = "LOISIR"
+    UNKNOW = "UNKNOWN"
 
 
 class Echelon(StrEnum):
@@ -117,3 +124,21 @@ class MatchStatus(StrEnum):
     FORFEIT = "FORFEIT"
     DOUBLE_FORFEIT = "DOUBLE_FORFEIT"
     UNKNOWN = "UNKNOWN"
+
+
+class PlayFormat(StrEnum):
+    """Format de jeu d'une compétition de volleyball."""
+
+    SIX_VS_SIX = "6x6"
+    FOUR_VS_FOUR = "4x4"
+    THREE_VS_THREE = "3x3"
+    TWO_VS_TWO = "2x2"
+
+
+class PlayVariant(StrEnum):
+    """Variante de jeu d'une compétition de volleyball."""
+
+    STANDARD = "Standard"
+    SOURD = "Sourd"
+    ASSIS = "Assis"
+    BEACH = "Beach"

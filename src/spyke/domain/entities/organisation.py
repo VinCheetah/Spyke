@@ -21,6 +21,16 @@ from spyke.domain.types import (
 
 
 @dataclass
+class League:
+    """Ligue ou comité organisateur de compétitions."""
+
+    id: LeagueId
+    name: str
+    code_ffvb: str
+    echelon: Echelon
+
+
+@dataclass
 class Season:
     """Données d'une saison sportive."""
 
