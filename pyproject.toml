@@ -8,7 +8,13 @@ requires-python = ">=3.12,<3.13"
 authors = [
     { name = "Vincent Gardies" },
 ]
-dependencies = []
+dependencies = [
+    "alembic>=1.18",
+    "geoalchemy2>=0.18",
+    "httpx>=0.28",
+    "psycopg[binary]>=3.2",
+    "sqlalchemy>=2.0",
+]
 
 [dependency-groups]
 dev = [
@@ -23,6 +29,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = [
     "-ra",
     "--strict-markers",
@@ -52,6 +59,9 @@ include = ["src", "tests"]
 exclude = [
     "**/__pycache__",
     ".venv",
+]
+executionEnvironments = [
+  { root = "src" }
 ]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
