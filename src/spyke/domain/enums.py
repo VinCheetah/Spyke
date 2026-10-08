@@ -142,3 +142,20 @@ class PlayVariant(StrEnum):
     SOURD = "Sourd"
     ASSIS = "Assis"
     BEACH = "Beach"
+
+
+class ResolutionStatus(StrEnum):
+    """Confidence state when an external record is linked to a canonical entity."""
+
+    MATCH = "MATCH"
+    PROBABLE = "PROBABLE"
+    AMBIGUOUS = "AMBIGUOUS"
+    UNRESOLVED = "UNRESOLVED"
+
+
+class RawDataCategory(StrEnum):
+    """Type de données brutes importées depuis un fichier source."""
+
+    CALENDAR = "CALENDAR"
+    FDME = "FDME"
+    CLUBS = "CLUBS"

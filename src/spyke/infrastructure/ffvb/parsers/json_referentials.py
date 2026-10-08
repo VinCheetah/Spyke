@@ -5,7 +5,7 @@ from spyke.domain.enums import Category, Division, Echelon, Gender, MatchStatus
 from spyke.infrastructure.ffvb.dto import (
     ClubRecord,
     CompetitionRecord,
-    LeagueRecord,
+    EntityRecord,
     MatchRecord,
 )
 
@@ -18,13 +18,11 @@ class JsonReferentialParser:
     here, keeping the application import service independent from FFVolley JSON.
     """
 
-    def leagues(self, payload: Any) -> list[LeagueRecord]:
+    def leagues(self, payload: Any) -> list[EntityRecord]:
         return [
-            LeagueRecord(
-                external_id=self._text(item, "id"),
+            EntityRecord(
                 name=self._text(item, "name"),
                 code_ffvb=self._text(item, "code_ffvb", "code"),
-                echelon=Echelon[self._text(item, "echelon")],
             )
             for item in self._items(payload, "leagues")
         ]

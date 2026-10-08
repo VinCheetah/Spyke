@@ -5,7 +5,7 @@ Modèles liés aux personnes (Joueur, Arbitre, Officiel).
 from dataclasses import dataclass
 
 from spyke.domain.enums import RoleCoach, RoleReferee
-from spyke.domain.types import CoachId, Jersey, LeagueId, MatchId, PersonId, PlayerId, RefereeId
+from spyke.domain.types import CoachId, EntityId, Jersey, MatchId, PersonId, PlayerId, RefereeId
 
 
 @dataclass
@@ -53,7 +53,7 @@ class PlayerMatch:
 class RefereeMatch:
     referee_id: RefereeId
     match_id: MatchId
-    league_id: LeagueId
+    league_id: EntityId
     role: RoleReferee
 
 

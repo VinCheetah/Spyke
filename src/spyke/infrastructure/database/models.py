@@ -4,6 +4,7 @@ from sqlalchemy import (
     BigInteger,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -21,25 +22,24 @@ class SeasonModel(Base):
     __tablename__ = "season"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_year: Mapped[int] = mapped_column(Integer, nullable=False)
 
     competitions: Mapped[list["CompetitionModel"]] = relationship(back_populates="season")
     teams: Mapped[list["TeamSeasonModel"]] = relationship(back_populates="season")
     matches: Mapped[list["MatchModel"]] = relationship(back_populates="season")
 
-    __table_args__ = (UniqueConstraint("start_date", "end_date", name="uq_season_dates"),)
+    __table_args__ = (UniqueConstraint("start_year", name="uq_season_year"),)
 
 
-class LeagueModel(Base):
-    __tablename__ = "league"
+class EntityModel(Base):
+    __tablename__ = "entity"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code_ffvb: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     echelon: Mapped[Echelon] = mapped_column(SAEnum(Echelon, native_enum=False), nullable=False)
 
-    clubs: Mapped[list["ClubModel"]] = relationship(back_populates="league")
+    clubs: Mapped[list["ClubModel"]] = relationship(back_populates="entities")
     competitions: Mapped[list["CompetitionModel"]] = relationship(back_populates="organizer")
 
 
@@ -51,7 +51,7 @@ class ClubModel(Base):
     code_ffvb: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
     city: Mapped[str | None] = mapped_column(String(255))
     department: Mapped[str | None] = mapped_column(String(16))
-    league_id: Mapped[int | None] = mapped_column(ForeignKey("league.id"))
+    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entity.id"))
     headquarters_address: Mapped[str | None] = mapped_column(String(500))
     email: Mapped[str | None] = mapped_column(String(320))
     website: Mapped[str | None] = mapped_column(String(500))
@@ -59,7 +59,7 @@ class ClubModel(Base):
     colors: Mapped[list[str]] = mapped_column(JsonValue, nullable=False, default=list)
     coordinate: Mapped[dict[str, float] | None] = mapped_column(GeoPoint)
 
-    league: Mapped[LeagueModel | None] = relationship(back_populates="clubs")
+    entities: Mapped[EntityModel | None] = relationship(back_populates="clubs")
     teams: Mapped[list["TeamSeasonModel"]] = relationship(back_populates="club")
 
 
@@ -81,7 +81,7 @@ class CompetitionModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("season.id"), nullable=False)
-    organizer_id: Mapped[int] = mapped_column(ForeignKey("league.id"), nullable=False)
+    entity_id: Mapped[int] = mapped_column(ForeignKey("entity.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code_competition: Mapped[str] = mapped_column(String(64), nullable=False)
     gender: Mapped[Gender] = mapped_column(SAEnum(Gender, native_enum=False), nullable=False)
@@ -90,7 +90,7 @@ class CompetitionModel(Base):
     division: Mapped[Division] = mapped_column(SAEnum(Division, native_enum=False), nullable=False)
 
     season: Mapped[SeasonModel] = relationship(back_populates="competitions")
-    organizer: Mapped[LeagueModel] = relationship(back_populates="competitions")
+    organizer: Mapped[EntityModel] = relationship(back_populates="competitions")
     teams: Mapped[list["TeamSeasonModel"]] = relationship(back_populates="competition")
     matches: Mapped[list["MatchModel"]] = relationship(back_populates="competition")
 
@@ -178,7 +178,6 @@ class SourceDocumentModel(Base):
     __tablename__ = "source_document"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     content_type: Mapped[str | None] = mapped_column(String(255))
@@ -187,7 +186,8 @@ class SourceDocumentModel(Base):
     http_status: Mapped[int] = mapped_column(Integer, nullable=False)
     etag: Mapped[str | None] = mapped_column(String(255))
     last_modified: Mapped[str | None] = mapped_column(String(255))
-    storage_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
     parser_type: Mapped[str | None] = mapped_column(String(128))
     parser_version: Mapped[str | None] = mapped_column(String(64))
 
@@ -210,6 +210,32 @@ class ExternalIdentifierModel(Base):
             "entity_type",
             "external_id",
             name="uq_external_identifier_source_entity",
+        ),
+    )
+
+
+class EntityResolutionModel(Base):
+    """Auditable result of resolving one external entity reference."""
+
+    __tablename__ = "entity_resolution"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    normalized_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    canonical_entity_id: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    source_document_id: Mapped[int | None] = mapped_column(ForeignKey("source_document.id"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_system",
+            "entity_type",
+            "external_id",
+            name="uq_entity_resolution_external_reference",
         ),
     )
 

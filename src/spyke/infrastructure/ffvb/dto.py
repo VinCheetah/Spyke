@@ -4,22 +4,38 @@ from datetime import datetime
 from spyke.domain.enums import Category, Division, Echelon, Gender, MatchStatus
 
 
+class Record:
+    """Base class for all records representing data from the FFVB."""
+
+    @property
+    def external_id(self) -> str:
+        """Return the external identifier for the record."""
+        raise NotImplementedError("Subclasses must implement the external_id property.")
+
+
 @dataclass(frozen=True)
-class LeagueRecord:
-    external_id: str
+class ArbitreRecord:
+    """Official identity as reported by the FFVB calendar export."""
+
+    licence: str | None
     name: str
+    entity: str | None = None
+    department: str | None = None
+
+
+@dataclass(frozen=True)
+class EntityRecord(Record):
     code_ffvb: str
-    echelon: Echelon
+    name: str
 
 
 @dataclass(frozen=True)
-class ClubRecord:
-    external_id: str
+class ClubRecord(Record):
+    code_ffvb: str
     name: str
-    code_ffvb: int
     city: str | None = None
     department: str | None = None
-    league_external_id: str | None = None
+    entity_code_ffvb: str | None = None
 
 
 @dataclass(frozen=True)

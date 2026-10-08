@@ -6,13 +6,14 @@ from dataclasses import dataclass, field
 
 from spyke.domain.entities.personne import CoachMatch, PlayerMatch
 from spyke.domain.enums import Category, Division, Echelon, Gender
+from spyke.domain.rules.categorisation import get_echelon_from_code_ffvb
 from spyke.domain.types import (
     ClubId,
     CodeClub,
     CompetitionId,
     Coordinate,
     Date,
-    LeagueId,
+    EntityId,
     MatchId,
     SeasonId,
     TeamMatchId,
@@ -21,25 +22,47 @@ from spyke.domain.types import (
 
 
 @dataclass
-class League:
+class Entity:
     """Ligue ou comité organisateur de compétitions."""
 
-    id: LeagueId
+    id: EntityId
+    code: str
     name: str
-    code_ffvb: str
-    echelon: Echelon
+
+    @property
+    def echelon(self) -> Echelon:
+        """Returns the echelon based on the FFVB code."""
+        return get_echelon_from_code_ffvb(self.code)
+
+    def __str__(self) -> str:
+        return self.code
 
 
 @dataclass
 class Season:
     """Données d'une saison sportive."""
 
-    start_date: Date
-    end_date: Date
+    start_year: int
+
+    @property
+    def end_year(self) -> int:
+        return self.start_year + 1
+
+    @property
+    def start_date(self) -> Date:
+        return Date(self.start_year, 9, 1)
+
+    @property
+    def end_date(self) -> Date:
+        return Date(self.end_year, 8, 31)
 
     @property
     def code(self) -> str:
-        return f"{self.start_date.year}-{self.end_date.year}"
+        return f"{self.start_year}/{self.end_year}"
+
+    @property
+    def short_code(self) -> str:
+        return f"{str(self.start_year)[-2:]}/{str(self.end_year)[-2:]}"
 
     @classmethod
     def from_code(cls, code: str) -> "Season":
@@ -47,12 +70,13 @@ class Season:
         try:
             start_year, end_year = map(int, code.split("-"))
             if end_year != start_year + 1:
-                raise ValueError
-            start_date = Date(start_year, 9, 1)
-            end_date = Date(end_year, 8, 31)
-            return cls(start_date=start_date, end_date=end_date)
+                raise ValueError(f"Code de saison invalide: {code}")
+            return cls(start_year=start_year)
         except Exception as e:
             raise ValueError(f"Code de saison invalide: {code}") from e
+
+    def __str__(self) -> str:
+        return self.code
 
 
 @dataclass
@@ -62,7 +86,7 @@ class Competition:
     id: CompetitionId
     name: str
     code_competition: str
-    organizer_id: LeagueId
+    organizer_id: EntityId
 
     gender: Gender
     category: Category
@@ -79,8 +103,8 @@ class Club:
     code_ffvb: CodeClub
     city: str | None
     departement: str | None
-    league_id: LeagueId | None = None
-    comitee_id: LeagueId | None = None
+    league_id: EntityId | None = None
+    comitee_id: EntityId | None = None
     adresse_siege: str | None = None
     email: str | None = None
     website: str | None = None

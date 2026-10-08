@@ -12,7 +12,7 @@ type CoachId = int
 type CompetitionId = int
 type SeasonId = int
 type VenueId = int
-type LeagueId = int
+type EntityId = int
 
 
 @dataclass(frozen=True)
