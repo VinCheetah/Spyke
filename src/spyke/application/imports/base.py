@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from spyke.infrastructure.database.base import Base
+from spyke.infrastructure.ffvb.client import FfvbClient
 from spyke.infrastructure.ffvb.dto import Record
 from abc import abstractmethod, ABC
 from spyke.infrastructure.database.session import Session
@@ -24,8 +25,9 @@ T_ModelType = TypeVar("T_ModelType", bound=Base)
 class BaseImporter(ABC, Generic[T_RecordType, T_ModelType]):
     """Base class for all importers."""
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, session: Session, client: FfvbClient) -> None:
+        self.session: Session = session
+        self.client: FfvbClient = client
 
     # How should i manage to have different type of Record (subtypes) in the import_records method ?
 

@@ -42,12 +42,6 @@ def import_data(
         "-s",
         help="Saison au format YY/YY (ex: 23/24). Accepte les plages (ex: 22/25). Répétable.",
     ),
-    entity_type: Optional[str] = typer.Option(
-        None,
-        "--type",
-        "-t",
-        help="Filtrer par type d'entité : nationale, ligue, comite.",
-    ),
     all_entities: bool = typer.Option(
         False,
         "--all",
@@ -96,201 +90,26 @@ def import_data(
     from spyke.infrastructure.database.session import DatabaseSession
 
     seasons: list[Season] = resolve_seasons(seasons or [])
-
+    entities_list: list[str] = entities or []
     render_config_panel(
-        console, entities or [], seasons, list(IMPORT_STEPS), limit, dry_run, refresh_cache
+        console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, refresh_cache
     )
 
     ffvb_client = FfvbClient()
 
-    steps = list(IMPORT_STEPS)
     with DatabaseSession() as session:
-        entities_importer = EntitiesImporter(session=session)
+        entities_importer = EntitiesImporter(session=session, client=ffvb_client)
         entities: list[EntityRecord] = entities_importer.get_filtered_entities(
-            ffvb_client, entities or [], all_entities
+            entities_list, all_entities
         )
         entities_importer.import_records(entities)
 
-        club_importer = ClubsImporter(session=session)
+        club_importer = ClubsImporter(session=session, client=ffvb_client)
         clubs: list[ClubRecord] = club_importer.get_filtered_clubs(
             ffvb_client, entities, enrich_clubs
         )
         club_importer.import_records(clubs)
 
-    # ── Initialisation des référentiels préalables (Entités & Clubs) ────
-    if "scrape" in steps:
-        from spyke.infrastructure.database.connection import DatabaseSession
-        from spyke.ingestion.orchestrator import IngestionOrchestrator
-        from sqlalchemy import select, func
-
-        # 1. Initialisations préliminaires via IngestionOrchestrator
-        if init_entities or init_clubs:
-            ref_saison = saisons[0] if saisons else "2024/2025"
-            with DatabaseSession() as sync_session:
-                orchestrator = IngestionOrchestrator(session=sync_session, saison=ref_saison)
-
-                if init_entities:
-                    from spyke.infrastructure.database.tables import EntiteFFVBDB
-
-                    nb_entites = sync_session.scalar(select(func.count(EntiteFFVBDB.id))) or 0
-                    if nb_entites < 20:
-                        console.print()
-                        console.rule(
-                            "[bold cyan]Initialisation du référentiel des Entités FFVB[/bold cyan]",
-                            style="cyan dim",
-                        )
-                        console.print(
-                            "  [cyan]ℹ Le référentiel des entités n'est pas encore synchronisé en base.[/cyan]\n"
-                            "  [dim]Synchronisation des entités officielles FFVB...[/dim]"
-                        )
-                        orchestrator.run_entities()
-                        sync_session.commit()
-                        console.print(
-                            f"  [bold green]✓ Entités synchronisées : {orchestrator.ctx.stats.entities_synced} entités enregistrées[/bold green]\n"
-                        )
-
-                if init_clubs:
-                    from spyke.infrastructure.database.tables import LigueDB, ClubDB
-
-                    nb_ligues = sync_session.scalar(select(func.count(LigueDB.id))) or 0
-                    nb_clubs = sync_session.scalar(select(func.count(ClubDB.id))) or 0
-                    if nb_ligues == 0 or nb_clubs < 500:
-                        console.print()
-                        console.rule(
-                            "[bold cyan]Initialisation de l'annuaire fédéral (Clubs & Ligues)[/bold cyan]",
-                            style="cyan dim",
-                        )
-                        console.print(
-                            "  [cyan]ℹ L'annuaire fédéral n'est pas encore initialisé en base.[/cyan]\n"
-                            "  [dim]Moissonnage du référentiel officiel avec géocodage des sièges sociaux...[/dim]"
-                        )
-                        orchestrator.run_clubs(geocode=geocode, fetch_details=True)
-                        sync_session.commit()
-                        console.print(
-                            "  [bold green]✓ Annuaire initialisé avec succès sur les référentiels officiels[/bold green]\n"
-                        )
-
-    def _resolve_step(func_name: str, fallback):
-        main_mod = sys.modules.get("spyke.cli.main")
-        if main_mod and hasattr(main_mod, func_name):
-            return getattr(main_mod, func_name)
-        return fallback
-
-    timer = PipelineTimer(label="Pipeline Import FFVB")
-    total_steps_count = len(steps)
-
-    # ── Étape 1 : Scrape ───────────────────────────────────────────
-    if "scrape" in steps:
-        step_idx = steps.index("scrape") + 1
-        render_step_rule(
-            console, step_idx, total_steps_count, "Scrape des exports FFVB & Clubs", style="cyan"
-        )
-        with timer.step("scrape", "1. Scrape (Exports CSV & Clubs)", items_unit="matchs"):
-            _resolve_step("_import_scrape", _import_scrape)(
-                scraper,
-                entities_to_process,
-                saisons,
-                verbose=verbose,
-                force_club_enrichment=force_club_enrichment,
-                enrich_clubs=enrich_clubs,
-                geocode=geocode,
-                refresh_cache=refresh_cache,
-                timer=timer,
-            )
-
-    # ── Étape 2 : Download ─────────────────────────────────────────
-    if "download" in steps:
-        if not keep_pdfs and "parse" in steps:
-            # Mode streaming : download + parse en une passe
-            render_step_rule(
-                console, 2, 2, "Téléchargement & Analyse en continu (Streaming)", style="blue"
-            )
-            with timer.step("stream", "2. Streaming (Download + Parse)", items_unit="matchs"):
-                _resolve_step("_import_stream", _import_stream)(
-                    limit=limit,
-                    saison=saisons,
-                    entity=entity,
-                    verbose=verbose,
-                    concurrent=concurrent,
-                    plausibility=plausibility,
-                    plausibility_policy=plausibility_policy,
-                    review_fixes=review_fixes,
-                    parser_name=parser_name,
-                    rollup=rollup,
-                    defer_player_stats=defer_player_stats,
-                    timer=timer,
-                )
-            steps = [s for s in steps if s != "parse"]
-        else:
-            step_idx = steps.index("download") + 1
-            render_step_rule(
-                console,
-                step_idx,
-                total_steps_count,
-                "Téléchargement des feuilles de match",
-                style="blue",
-            )
-            with timer.step("download", "2. Download (Feuilles PDF)", items_unit="PDFs"):
-                _resolve_step("_import_download", _import_download)(
-                    limit=limit,
-                    saison=saisons,
-                    concurrent=concurrent,
-                    entity=entity,
-                    verbose=verbose,
-                    verify_existing=verify_existing,
-                    delay=delay,
-                    timer=timer,
-                )
-
-    # ── Étape 3 : Parse ───────────────────────────────────────────
-    if "parse" in steps:
-        step_idx = steps.index("parse") + 1
-        render_step_rule(
-            console,
-            step_idx,
-            total_steps_count,
-            "Analyse & Enrichissement des matchs",
-            style="magenta",
-        )
-        with timer.step("parse", "3. Parse & Enrichissement", items_unit="matchs"):
-            _resolve_step("_import_parse", _import_parse)(
-                limit=limit,
-                saison=saisons,
-                entity=entity,
-                force=force,
-                verbose=verbose,
-                plausibility=plausibility,
-                plausibility_policy=plausibility_policy,
-                review_fixes=review_fixes,
-                parser_name=parser_name,
-                rollup=rollup,
-                defer_player_stats=defer_player_stats,
-                timer=timer,
-            )
-
-        # Nettoyage post-parse si --no-keep-pdfs
-        if not keep_pdfs:
-            _resolve_step("_cleanup_parsed_pdfs", _cleanup_parsed_pdfs)(
-                saison=saisons,
-                verbose=verbose,
-                timer=timer,
-            )
-
-    timer.stop_pipeline()
-    console.print()
-    console.print(
-        Panel(
-            f"[bold green]✔ Pipeline d'importation terminé avec succès en {format_duration(timer.total_duration)}[/bold green]",
-            title="[bold green]✅ Terminé[/bold green]",
-            border_style="green",
-            box=box.ROUNDED,
-        )
-    )
-    timer.display_summary(
-        console,
-        detail_level=timing_detail,
-        title="⏱️ Récapitulatif du Pipeline d'Import",
-    )
 
 
 def render_config_panel(
@@ -347,92 +166,6 @@ def render_config_panel(
             config_grid,
             title="[bold cyan]⚡ PyVolley[/bold cyan] · [bold white]Pipeline d'Importation FFVB[/bold white]",
             border_style="cyan",
-            box=box.ROUNDED,
-        )
-    )
-
-
-# ── Sous-fonctions du pipeline import ───────────────────────────────
-
-
-def _import_dry_run(
-    steps: list[str],
-    entities: list[str],
-    saisons: list[str],
-    limit: Optional[int],
-) -> None:
-    """Affiche le plan d'exécution sans effectuer d'action."""
-    from spyke.infrastructure.database.connection import DatabaseSession, init_db
-    from spyke.infrastructure.database.tables import MatchDB, EntiteFFVBDB, ClubDB, LigueDB
-    from sqlalchemy import select, func
-
-    db_counts = {}
-    ref_counts = {}
-    try:
-        init_db()
-        with DatabaseSession() as session:
-            for status in ["discovered", "downloaded", "parsed", "error"]:
-                count = (
-                    session.scalar(
-                        select(func.count(MatchDB.id)).where(
-                            MatchDB.parsing_status == status,
-                        )
-                    )
-                    or 0
-                )
-                db_counts[status] = count
-            ref_counts["entites"] = session.scalar(select(func.count(EntiteFFVBDB.id))) or 0
-            ref_counts["clubs"] = session.scalar(select(func.count(ClubDB.id))) or 0
-            ref_counts["ligues"] = session.scalar(select(func.count(LigueDB.id))) or 0
-    except Exception:
-        pass
-
-    dry_table = Table.grid(padding=(0, 2))
-    dry_table.add_column(style="bold yellow", justify="right")
-    dry_table.add_column(style="white")
-
-    if ref_counts:
-        dry_table.add_row(
-            "Référentiels DB :",
-            f"[cyan]{ref_counts['entites']}[/cyan] entités · [cyan]{ref_counts['clubs']}[/cyan] clubs · [cyan]{ref_counts['ligues']}[/cyan] ligues",
-        )
-
-    if db_counts:
-        counts_str = " · ".join(
-            f"[cyan]{st}[/cyan]: [bold]{cnt}[/bold]" for st, cnt in db_counts.items()
-        )
-        dry_table.add_row("Matchs en DB :", counts_str)
-    else:
-        dry_table.add_row("Matchs en DB :", "[dim]Non initialisée ou vide[/dim]")
-
-    if "scrape" in steps:
-        dry_table.add_row(
-            "Étape 1 (Scrape) :",
-            f"Exports CSV pour [cyan]{len(entities)}[/cyan] entité(s) sur [cyan]{', '.join(saisons)}[/cyan]",
-        )
-    if "download" in steps:
-        dry_table.add_row(
-            "Étape 2 (Download) :",
-            "Téléchargement des feuilles PDF des matchs à statut 'discovered'",
-        )
-    if "parse" in steps:
-        dry_table.add_row(
-            "Étape 3 (Parse) :",
-            "Analyse PDF & injection scores/joueurs pour les matchs à statut 'downloaded'",
-        )
-
-    dry_table.add_row(
-        "Plafond :",
-        f"[cyan]{limit} matchs max[/cyan]" if limit else "[dim]aucun (totalité)[/dim]",
-    )
-
-    console.print()
-    console.print(
-        Panel(
-            dry_table,
-            title="[bold yellow]🔍 Plan d'exécution simulé (Dry-run)[/bold yellow]",
-            subtitle="[dim yellow]Aucune modification ne sera appliquée à la base de données ni aux fichiers[/dim yellow]",
-            border_style="yellow",
             box=box.ROUNDED,
         )
     )

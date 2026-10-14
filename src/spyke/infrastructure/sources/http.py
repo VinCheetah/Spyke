@@ -1,13 +1,20 @@
-from asyncio.log import logger
-from dataclasses import dataclass
-from time import sleep
-from types import TracebackType
-from typing import Self, Any
+import logging
 import re
-from bs4 import BeautifulSoup
+import time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Self
+
 import httpx
+from bs4 import BeautifulSoup
+
+from spyke.domain.entities import Entity, Season
 from spyke.domain.enums import RawDataCategory
-from spyke.domain.entities import Season, Entity
+
+logger = logging.getLogger(__name__)
+
+ParameterValue = str | Entity | Season
+ParameterMapping = Mapping[str, ParameterValue]
 
 
 class SourceHttpError(RuntimeError):
@@ -16,37 +23,47 @@ class SourceHttpError(RuntimeError):
 
 @dataclass(frozen=True)
 class HttpDocument:
+    """The immutable result of a source request."""
+
     url: str
     body: bytes
     status_code: int
-    content_type: str
-    etag: str
-    params: dict[str, Entity | Season | str]
-    last_modified: str | None
-
-    def build_storage_key(self, category: RawDataCategory) -> str:
-        match category:
-            case RawDataCategory.FDME:
-                base = "fdme"
-                components = ["season", "entity", "competition", "code"]
-            case RawDataCategory.CALENDAR:
-                base = "calendar"
-                components = ["season", "entity"]
-            case RawDataCategory.CLUBS:
-                base = "clubs"
-                components = ["season", "entity"]
-            case _:
-                raise ValueError(f"Unsupported category: {category}")
+    content_type: str | None
+    etag: str | None
+    params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    sub_params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    last_modified: str | None = None
+    
+    @classmethod
+    def build_storage_key(cls, category: RawDataCategory, params: ParameterMapping) -> str:
+        category_paths: dict[RawDataCategory, tuple[str, list[str]]] = {
+            RawDataCategory.FDME: ("fdme", ["season", "entity", "competition", "code"]),
+            RawDataCategory.CALENDAR: ("calendar", ["season", "entity"]),
+            RawDataCategory.CLUBS: ("clubs", ["entity"]),
+            RawDataCategory.ENTITIES: ("entities", []),
+            RawDataCategory.ENTITY: ("entities", ["entity_type", "entity_code"]),
+        }
+        try:
+            base, components = category_paths[category]
+        except KeyError as error:
+            raise ValueError(f"Unsupported category: {category}") from error
 
         return f"{base}/" + "/".join(
-            map(self._safe_component, map(str, (self.get_params(components))))
+            cls._safe_component(str(value)) for value in cls._get_params(components, params)
         )
+        
+    def storage_key(self, category: RawDataCategory) -> str:
+        """Return a unique storage key for this document based on its category and parameters."""
+        return self.build_storage_key(category, self.params)
+        
+    @classmethod
+    def _get_params(cls, names: Sequence[str], params: ParameterMapping) -> list[ParameterValue]:
+        if missing := [name for name in names if name not in params]:
+            raise ValueError(f"Missing required parameters: {missing}")
+        return [params[name] for name in names]
 
-    def get_params(self, params_list: list[str]) -> list[Entity | Season | str]:
-        if any(param not in self.params for param in params_list):
-            raise ValueError(f"Missing required parameters: {params_list} in {self.params.keys()}")
-        else:
-            return [self.params[param] for param in params_list]
+    def get_params(self, names: Sequence[str]) -> list[ParameterValue]:
+        return self._get_params(names, self.params)
 
     @staticmethod
     def _safe_component(value: str) -> str:
@@ -64,7 +81,9 @@ class HttpDocument:
 
 
 class SourceHttpClient:
-    """Small, deterministic HTTP client with timeout and bounded retries."""
+    """Small HTTP client with timeouts, redirects, and bounded retries."""
+
+    _TRANSIENT_STATUS_CODES = frozenset({408, 429})
 
     def __init__(
         self,
@@ -75,8 +94,15 @@ class SourceHttpClient:
         user_agent: str = "Spyke/0.1 (+https://github.com/spyke-project)",
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        if not base_url.strip():
+            raise ValueError("base_url must not be empty")
+        if timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
         if retries < 0:
             raise ValueError("retries must be non-negative")
+        if backoff_seconds < 0:
+            raise ValueError("backoff_seconds must be non-negative")
+
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
@@ -90,92 +116,119 @@ class SourceHttpClient:
     def __enter__(self) -> Self:
         return self
 
+    def __exit__(
+        self,
+        *_args: object,
+    ) -> None:
+        del _args
+        self.close()
+
     @property
     def base_url(self) -> str:
         """Configured source base URL without a trailing slash."""
         return str(self._client.base_url).rstrip("/")
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
     def close(self) -> None:
         self._client.close()
 
-    def fetch(
-        self, path: str, *, params: dict[str, str | Entity | Season] | None = None
-    ) -> HttpDocument:
-        """Fetch one document, retrying transport and transient HTTP failures."""
-        last_error: Exception | None = None
-        for attempt in range(self._retries + 1):
-            try:
-                response = self._client.get(path, params=url_params_to_str(params))
-                if response.status_code in {408, 429} or response.status_code >= 500:
-                    response.raise_for_status()
-                    raise SourceHttpError(f"Transient source response: {response.status_code}")
-                response.raise_for_status()
-                return HttpDocument(
-                    url=str(response.url),
-                    body=response.content,
-                    status_code=response.status_code,
-                    content_type=response.headers.get("content-type"),
-                    etag=response.headers.get("etag"),
-                    params=params,
-                    last_modified=response.headers.get("last-modified"),
-                )
-            except (httpx.HTTPError, SourceHttpError) as error:
-                last_error = error
-                if attempt == self._retries:
-                    break
-                sleep(self._backoff_seconds * (2**attempt))
-        raise SourceHttpError(f"Unable to fetch {path}") from last_error
+    def fetch(self, path: str, *, params: ParameterMapping | None = None) -> HttpDocument:
+        """Fetch a document, retrying transport and transient HTTP failures."""
+        return self._request("GET", path, params=params)
 
     def post(
-        self, path: str, *, params: dict[str, str | Entity | Season] | None = None
+        self,
+        path: str,
+        *,
+        params: ParameterMapping | None = None,
+        **kwargs: Any,
     ) -> HttpDocument:
-        """Post one document, retrying transport and transient HTTP failures."""
-        last_error: Exception | None = None
-        for attempt in range(self._retries + 1):
-            try:
-                response = self._client.post(path, data=url_params_to_str(params))
-                if response.status_code in {408, 429} or response.status_code >= 500:
-                    response.raise_for_status()
-                    raise SourceHttpError(f"Transient source response: {response.status_code}")
-                response.raise_for_status()
-                return HttpDocument(
-                    url=str(response.url),
-                    body=response.content,
-                    status_code=response.status_code,
-                    content_type=response.headers.get("content-type"),
-                    etag=response.headers.get("etag"),
-                    params=params,
-                    last_modified=response.headers.get("last-modified"),
-                )
-            except (httpx.HTTPError, SourceHttpError) as error:
-                last_error = error
-                if attempt == self._retries:
-                    break
-                sleep(self._backoff_seconds * (2**attempt))
-        raise SourceHttpError(f"Unable to post to {path}") from last_error
+        """Post form data, retrying transport and transient HTTP failures."""
+        return self._request("POST", path, params=params, **kwargs)
 
     def get_soup(self, document: HttpDocument) -> BeautifulSoup:
-        """Récupère et parse une page HTML."""
+        """Parse a document body as HTML."""
         return BeautifulSoup(document.body, "html.parser")
 
     def safe_get_soup(self, document: HttpDocument) -> BeautifulSoup | None:
-        """Récupère et parse une page HTML, retourne None en cas d'erreur."""
+        """Parse HTML and return ``None`` when the document body is invalid."""
         try:
             return self.get_soup(document)
-        except Exception as e:
-            logger.warning("Impossible de récupérer %s : %s", document.url, e)
+        except (TypeError, ValueError) as error:
+            logger.warning("Unable to parse %s as HTML: %s", document.url, error)
             return None
 
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: ParameterMapping | None,
+        **kwargs: Any,
+    ) -> HttpDocument:
+        request_params = url_params_to_str(params)
+        last_error: Exception | None = None
 
-def url_params_to_str(params: dict[str, str | Entity | Season] | None) -> dict[str, str] | None:
+        for attempt in range(self._retries + 1):
+            try:
+                response = self._client.request(
+                    method,
+                    path,
+                    params=request_params if method == "GET" else None,
+                    data=request_params if method == "POST" else None,
+                    **kwargs,
+                )
+                if self._is_transient(response):
+                    last_error = SourceHttpError(
+                        f"Transient source response: {response.status_code}"
+                    )
+                    if attempt < self._retries:
+                        self._sleep_before_retry(attempt)
+                        continue
+                    break
+
+                response.raise_for_status()
+                return self._document(response, request_params or {})
+            except httpx.TransportError as error:
+                last_error = error
+                if attempt < self._retries:
+                    self._sleep_before_retry(attempt)
+                    continue
+                break
+            except httpx.HTTPStatusError as error:
+                raise SourceHttpError(
+                    f"Source returned HTTP {error.response.status_code} for {method} {path}"
+                ) from error
+
+        raise SourceHttpError(
+            f"Unable to {method.lower()} {path} after {self._retries + 1} attempt(s)"
+        ) from last_error
+
+    @classmethod
+    def _is_transient(cls, response: httpx.Response) -> bool:
+        return response.status_code in cls._TRANSIENT_STATUS_CODES or response.status_code >= 500
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        delay = self._backoff_seconds * (2**attempt)
+        if delay:
+            time.sleep(delay)
+
+    @staticmethod
+    def _document(response: httpx.Response, params: dict[str, str]) -> HttpDocument:
+        return HttpDocument(
+            url=str(response.url),
+            body=response.content,
+            status_code=response.status_code,
+            content_type=response.headers.get("content-type"),
+            etag=response.headers.get("etag"),
+            params=params,
+            last_modified=response.headers.get("last-modified"),
+        )
+
+
+def url_params_to_str(params: ParameterMapping | None) -> dict[str, str] | None:
+    """Convert domain values to strings accepted by ``httpx``."""
     if params is None:
         return None
-    return {key: str(value) for key, value in params.items()}
+    if isinstance(params, Mapping):
+        return {key: str(value) for key, value in params.items()}
+    return {key: str(value) for key, value in params}

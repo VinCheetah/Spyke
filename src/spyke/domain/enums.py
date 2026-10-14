@@ -159,3 +159,12 @@ class RawDataCategory(StrEnum):
     CALENDAR = "CALENDAR"
     FDME = "FDME"
     CLUBS = "CLUBS"
+    ENTITIES = "ENTITIES"
+    ENTITY = "ENTITY"
+    
+
+class ArchiveMode(StrEnum):
+    DISABLED = "DISABLED"  # Toujours effectuer la requête HTTP
+    USE = "USE"            # Lire le cache, sinon télécharger
+    REFRESH = "REFRESH"    # Télécharger et remplacer le cache
+    OFFLINE = "OFFLINE"    # Cache obligatoire, aucune requête HTTP

@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     postgres_db: str = "spyke"
 
     # FFVB Scraping
-    ffvb_base_url: str = "https://www.ffvbbeach.org/ffvbapp/resu/"
+    ffvb_base_url: str = "https://www.ffvbbeach.org/ffvbapp/"
     ffvb_request_delay: float = 0.05  # Délai entre requêtes (secondes)
     ffvb_timeout: int = 30
 
