@@ -21,9 +21,15 @@ Sous-applications :
 
 from __future__ import annotations
 
+import logging
 import sys
 import typer
+from time import strftime
+from pathlib import Path
 from rich.console import Console
+
+from spyke.cli.logging_config import configure_logging
+from spyke.config import settings
 
 # Configuration console Windows UTF-8
 if sys.platform == "win32":
@@ -46,14 +52,28 @@ console = Console()
 
 
 from spyke.cli.commands.import_cmd import import_data
+from spyke.cli.commands.debug_cmd import debug
 
-
+configure_logging(
+        level=logging.INFO,
+        log_file=settings.base_dir / f"logs/spyke_{strftime('%Y%m%d_%H%M%S')}.log",
+    )
 # ── Commandes racines principales ──────────────────────────────────────────
 app.command("import")(import_data)
+app.command("debug")(debug)
+app.command("prout")(lambda: console.print("[bold red]Prout![/bold red]"))
 
 
 def main():
     """Point d'entrée principal du CLI."""
+
+    configure_logging(
+        level=logging.DEBUG,
+        log_file=settings.base_dir / f"logs/spyke_{strftime('%Y%m%d_%H%M%S')}.log",
+    )
+
+    logger = logging.getLogger(__name__)
+    logger.info("Spyke starting")
     app()
 
 

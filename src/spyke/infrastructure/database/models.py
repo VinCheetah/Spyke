@@ -178,6 +178,7 @@ class SourceDocumentModel(Base):
     __tablename__ = "source_document"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     content_type: Mapped[str | None] = mapped_column(String(255))
@@ -186,7 +187,6 @@ class SourceDocumentModel(Base):
     http_status: Mapped[int] = mapped_column(Integer, nullable=False)
     etag: Mapped[str | None] = mapped_column(String(255))
     last_modified: Mapped[str | None] = mapped_column(String(255))
-    code: Mapped[str] = mapped_column(String(32), nullable=False)
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)
     parser_type: Mapped[str | None] = mapped_column(String(128))
     parser_version: Mapped[str | None] = mapped_column(String(64))

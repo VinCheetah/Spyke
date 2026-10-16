@@ -47,8 +47,8 @@ class EntityRecord(Record):
     num_ffvb: str | None = None
     email: str | None = None
     website: str | None = None
-    phone_number: str | None = None
-    headquarters_address: str | None = None
+    phone_numbers: list[str] | None = None
+    headquarters_address: list[str] | None = None
     president: str | None = None
     parents_code: list[str] | None = None
     clubs_code: list[str] | None = None

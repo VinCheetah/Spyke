@@ -104,7 +104,7 @@ class HttpDocumentParser(BaseParser[T_RecordType]):
         Returns:
             BeautifulSoup: A BeautifulSoup object representing the parsed HTML.
         """
-        return BeautifulSoup(document.body, "html.parser")
+        return BeautifulSoup(document.body, "lxml")
 
     def find_heading(self, soup: BeautifulSoup, title: str) -> Tag:
         """Find a unique section heading cell by its visible text."""

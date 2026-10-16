@@ -16,11 +16,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from spyke.cli.args import AllEntitiesParam, EntityParam, LimitParam, SeasonParam, ForceParam, DryRunParam, VerboseParam, ArchiveModeParam
 from spyke.application.imports.clubs import ClubsImporter
 from spyke.cli.shared.output_formatting import max_show
 from spyke.config import settings
 from spyke.cli.shared.arg_resolver import resolve_seasons, resolve_entity_type
 from spyke.domain.entities.organisation import Entity, Season
+from spyke.domain.enums import ArchiveMode
 from spyke.infrastructure.ffvb.dto import ClubRecord, EntityRecord
 
 
@@ -30,57 +32,14 @@ IMPORT_STEPS = ("entities", "clubs", "competitions", "calendar", "matches")
 
 
 def import_data(
-    entities: Optional[List[str]] = typer.Option(
-        None,
-        "--entité",
-        "-e",
-        help="Code de l'entité (ex: ABCCS, LIRA). Répétable.",
-    ),
-    seasons: Optional[List[str]] = typer.Option(
-        None,
-        "--saison",
-        "-s",
-        help="Saison au format YY/YY (ex: 23/24). Accepte les plages (ex: 22/25). Répétable.",
-    ),
-    all_entities: bool = typer.Option(
-        False,
-        "--all",
-        help="Traiter toutes les entités.",
-    ),
-    limit: Optional[int] = typer.Option(
-        None,
-        "--limit",
-        "-n",
-        help="Nombre maximum de matchs à traiter.",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Re-traiter les matchs déjà parsés.",
-    ),
-    enrich_clubs: bool = typer.Option(
-        True,
-        "--enrich-clubs/--no-enrich-clubs",
-        help="Actualiser les informations des clubs (adressier FFVB) en fin de scrape.",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Afficher le plan sans effectuer de modification.",
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        "-v",
-        help="Affichage détaillé.",
-    ),
-    refresh_cache: bool = typer.Option(
-        False,
-        "--refresh-cache",
-        "-R",
-        help="Forcer le re-téléchargement des exports CSV sans utiliser le cache disque.",
-    ),
+    entities: EntityParam = [],
+    seasons: SeasonParam = [],
+    all_entities: AllEntitiesParam = False,
+    limit: LimitParam = None,
+    force: ForceParam = False,
+    dry_run: DryRunParam = False,
+    archive_mode: ArchiveModeParam = ArchiveMode.USE,
+    verbose: VerboseParam = False,
 ):
     """
     ...
@@ -92,21 +51,20 @@ def import_data(
     seasons: list[Season] = resolve_seasons(seasons or [])
     entities_list: list[str] = entities or []
     render_config_panel(
-        console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, refresh_cache
+        console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, force
     )
-
     ffvb_client = FfvbClient()
 
     with DatabaseSession() as session:
         entities_importer = EntitiesImporter(session=session, client=ffvb_client)
-        entities: list[EntityRecord] = entities_importer.get_filtered_entities(
-            entities_list, all_entities
-        )
+        entities: list[EntityRecord] = entities_importer.get_filtered_entities(entities_list, all_entities)
+        entities_importer.enrich_entities_codes(entities)
+        entities_importer.enrich_entities(entities)
         entities_importer.import_records(entities)
 
         club_importer = ClubsImporter(session=session, client=ffvb_client)
         clubs: list[ClubRecord] = club_importer.get_filtered_clubs(
-            ffvb_client, entities, enrich_clubs
+            ffvb_client, entities
         )
         club_importer.import_records(clubs)
 

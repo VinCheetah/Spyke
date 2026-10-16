@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy import select
 
 from spyke.application.imports.base import BaseImporter, ImportSummary
@@ -7,6 +9,8 @@ from spyke.infrastructure.ffvb.dto import ClubRecord, EntityRecord
 from spyke.infrastructure.ffvb.parsers.clubs import ClubParser
 from spyke.infrastructure.ffvb.parsers.entities import EntityDirectoryParser
 
+logger = logging.getLogger(__name__)
+
 
 class ClubsImporter(BaseImporter[ClubRecord, ClubModel]):
     """Retrieve and persist clubs from the FFVB directory."""
@@ -15,14 +19,14 @@ class ClubsImporter(BaseImporter[ClubRecord, ClubModel]):
         self,
         ffvb_client: FfvbClient,
         entities: list[EntityRecord],
-        enrich: bool = True,
     ) -> list[ClubRecord]:
         parser = ClubParser()
         directory_parser = EntityDirectoryParser()
         clubs: dict[str, ClubRecord] = {}
-
+        clubs_code = set(entity.clubs_code for entity in entities if entity.clubs_code is not None)
+        logger.critical(f"Info: Fetching clubs: {', '.join(clubs_code)}")
         for entity in entities:
-            if entity.directory_code is None:
+            if entity.num_ffvb is None:
                 continue
             directory = ffvb_client.fetch_entity_directory(entity.directory_code)
             _, _, club_codes = directory_parser.parse(directory)
@@ -30,10 +34,9 @@ class ClubsImporter(BaseImporter[ClubRecord, ClubModel]):
 
             for club in listed_clubs:
                 clubs[club.code_ffvb] = club
-            if enrich:
-                for club_code in club_codes:
-                    detail = ffvb_client.fetch_club(club_code)
-                    clubs[club_code] = parser.parse_detail(detail, entity.code_ffvb)
+            for club_code in club_codes:
+                detail = ffvb_client.fetch_club(club_code)
+                clubs[club_code] = parser.parse_detail(detail, entity.code_ffvb)
 
         return list(clubs.values())
 

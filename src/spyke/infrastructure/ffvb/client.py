@@ -62,7 +62,7 @@ class FfvbClient:
     ) -> None:
         self.http = http or SourceHttpClient(settings.ffvb_base_url)
         self.endpoints = endpoints or FfvbEndpoints()
-        self.archive_mode: ArchiveMode = ArchiveMode.USE 
+        self.archive_mode: ArchiveMode = ArchiveMode.DISABLED 
 
     @archive(data_category=RawDataCategory.ENTITIES)
     def fetch_entities(self) -> HttpDocument:

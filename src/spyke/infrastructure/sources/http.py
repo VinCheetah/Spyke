@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from spyke.domain.entities import Entity, Season
 from spyke.domain.enums import RawDataCategory
 
+from charset_normalizer import from_bytes
 logger = logging.getLogger(__name__)
 
 ParameterValue = str | Entity | Season
@@ -31,7 +32,6 @@ class HttpDocument:
     content_type: str | None
     etag: str | None
     params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
-    sub_params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
     last_modified: str | None = None
     
     @classmethod
@@ -214,6 +214,11 @@ class SourceHttpClient:
 
     @staticmethod
     def _document(response: httpx.Response, params: dict[str, str]) -> HttpDocument:
+        detection = from_bytes(response.content).best()
+        if detection is not None:
+            response.encoding = detection.encoding
+        else:
+            response.encoding = "utf-8"
         return HttpDocument(
             url=str(response.url),
             body=response.content,
