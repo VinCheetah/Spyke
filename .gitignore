@@ -34,7 +34,6 @@ build/
 
 # Spyke local data
 data/
-storage/
 logs/
 
 # Database
