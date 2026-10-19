@@ -4,7 +4,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from spyke.config import settings
-from spyke.domain.entities import Season, Entity
+from spyke.domain.entities import Entity, Season
 from spyke.infrastructure.database.models import SourceDocumentModel
 from spyke.infrastructure.ffvb.client import FfvbClient
 from spyke.infrastructure.ffvb.export import ExportMatchRecord, FfvbCalendarExportParser

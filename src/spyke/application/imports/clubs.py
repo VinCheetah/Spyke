@@ -7,7 +7,6 @@ from spyke.infrastructure.database.models import ClubModel, EntityModel
 from spyke.infrastructure.ffvb.client import FfvbClient
 from spyke.infrastructure.ffvb.dto import ClubRecord, EntityRecord
 from spyke.infrastructure.ffvb.parsers.clubs import ClubParser
-from spyke.infrastructure.ffvb.parsers.entities import EntityDirectoryParser
 
 logger = logging.getLogger(__name__)
 
@@ -15,30 +14,22 @@ logger = logging.getLogger(__name__)
 class ClubsImporter(BaseImporter[ClubRecord, ClubModel]):
     """Retrieve and persist clubs from the FFVB directory."""
 
-    def get_filtered_clubs(
+    def get_clubs(
         self,
         ffvb_client: FfvbClient,
         entities: list[EntityRecord],
     ) -> list[ClubRecord]:
         parser = ClubParser()
-        directory_parser = EntityDirectoryParser()
-        clubs: dict[str, ClubRecord] = {}
-        clubs_code = set(entity.clubs_code for entity in entities if entity.clubs_code is not None)
-        logger.critical(f"Info: Fetching clubs: {', '.join(clubs_code)}")
-        for entity in entities:
-            if entity.num_ffvb is None:
-                continue
-            directory = ffvb_client.fetch_entity_directory(entity.directory_code)
-            _, _, club_codes = directory_parser.parse(directory)
-            listed_clubs = parser.parse(directory, entity.code_ffvb)
-
-            for club in listed_clubs:
-                clubs[club.code_ffvb] = club
-            for club_code in club_codes:
-                detail = ffvb_client.fetch_club(club_code)
-                clubs[club_code] = parser.parse_detail(detail, entity.code_ffvb)
-
-        return list(clubs.values())
+        clubs: list[ClubRecord] = []
+        list_clubs_codes: list[str] = [
+            code for entity in entities if entity.clubs_code is not None for code in entity.clubs_code
+        ]
+        clubs_code = set(list_clubs_codes)
+        for code in clubs_code:
+            document = ffvb_client.fetch_club(id_club=code)
+            club_record = parser.parse_single(document)
+            clubs.append(club_record)
+        return clubs
 
     def import_records(self, records: list[ClubRecord]) -> ImportSummary:
         created = updated = 0

@@ -1,8 +1,7 @@
-from datetime import date, datetime
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -94,9 +93,7 @@ class CompetitionModel(Base):
     teams: Mapped[list["TeamSeasonModel"]] = relationship(back_populates="competition")
     matches: Mapped[list["MatchModel"]] = relationship(back_populates="competition")
 
-    __table_args__ = (
-        UniqueConstraint("season_id", "code_competition", name="uq_competition_season_code"),
-    )
+    __table_args__ = (UniqueConstraint("season_id", "code_competition", name="uq_competition_season_code"),)
 
 
 class TeamSeasonModel(Base):
@@ -118,9 +115,7 @@ class TeamSeasonModel(Base):
         back_populates="away_team", foreign_keys="MatchModel.away_team_id"
     )
 
-    __table_args__ = (
-        UniqueConstraint("season_id", "competition_id", "name", name="uq_team_season_name"),
-    )
+    __table_args__ = (UniqueConstraint("season_id", "competition_id", "name", name="uq_team_season_name"),)
 
 
 class MatchModel(Base):
@@ -144,12 +139,8 @@ class MatchModel(Base):
     season: Mapped[SeasonModel] = relationship(back_populates="matches")
     competition: Mapped[CompetitionModel] = relationship(back_populates="matches")
     venue: Mapped[VenueModel | None] = relationship(back_populates="matches")
-    home_team: Mapped[TeamSeasonModel] = relationship(
-        back_populates="home_matches", foreign_keys=[home_team_id]
-    )
-    away_team: Mapped[TeamSeasonModel] = relationship(
-        back_populates="away_matches", foreign_keys=[away_team_id]
-    )
+    home_team: Mapped[TeamSeasonModel] = relationship(back_populates="home_matches", foreign_keys=[home_team_id])
+    away_team: Mapped[TeamSeasonModel] = relationship(back_populates="away_matches", foreign_keys=[away_team_id])
     sets: Mapped[list["MatchSetModel"]] = relationship(
         back_populates="match", cascade="all, delete-orphan", order_by="MatchSetModel.number"
     )
@@ -159,9 +150,7 @@ class MatchSetModel(Base):
     __tablename__ = "match_set"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    match_id: Mapped[int] = mapped_column(
-        ForeignKey("match.id", ondelete="CASCADE"), nullable=False
-    )
+    match_id: Mapped[int] = mapped_column(ForeignKey("match.id", ondelete="CASCADE"), nullable=False)
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     home_score: Mapped[int] = mapped_column(Integer, nullable=False)
     away_score: Mapped[int] = mapped_column(Integer, nullable=False)

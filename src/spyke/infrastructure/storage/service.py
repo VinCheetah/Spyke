@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import hashlib
 import json
-from collections.abc import Mapping
-from datetime import UTC, datetime
+import logging
+import mimetypes
+import os
+import tempfile
 from pathlib import Path
-
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from typing import Any
 
 from spyke.config import settings
-from spyke.domain.entities import Entity, Season
 from spyke.domain.enums import RawDataCategory
-from spyke.infrastructure.database.models import SourceDocumentModel
-from spyke.infrastructure.sources.http import HttpDocument, ParameterMapping
-from spyke.infrastructure.storage.archive import RawArchive
+from spyke.infrastructure.sources.http import HttpDocument
+
+logger = logging.getLogger(__name__)
 
 
 class ArchiveService:
@@ -34,123 +31,124 @@ class ArchiveService:
         self.archive_dir = archive_dir.expanduser().resolve()
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
-    def ingest(self, data_category: RawDataCategory, document: HttpDocument) -> None:
-        storage_key = document.storage_key(data_category)
-        path = self._resolve(storage_key)
-        payload = {
+    @staticmethod
+    def _atomic_write(path: Path, data: bytes) -> None:
+        """Atomically replace a file with the supplied bytes."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        fd, temporary_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        temporary_path = Path(temporary_name)
+
+        try:
+            with os.fdopen(fd, "wb") as file:
+                file.write(data)
+                file.flush()
+                os.fsync(file.fileno())
+
+            # Atomic when supported by the underlying filesystem.
+            os.replace(temporary_path, path)
+
+            # On POSIX, also request persistence of the directory entry.
+            if os.name == "posix":
+                directory_fd = os.open(
+                    path.parent,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+
+        finally:
+            # Clean up if writing or replacement failed.
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def save(
+        self,
+        *,
+        document: HttpDocument,
+        category: RawDataCategory,
+        params: dict[str, Any] | None = None,
+    ) -> None:
+        # Ne jamais remplacer le cache avec une erreur HTTP.
+        if not 200 <= document.status_code < 300 or document.status_code == 204:
+            return None
+
+        path = self.archive_dir / document.storage_key(category, params or {})
+
+        content_type = document.content_type or ""
+        mime = content_type.split(";")[0].strip().lower()
+        extensions = {
+            "text/html": ".html",
+            "text/csv": ".csv",
+            "application/pdf": ".pdf",
+            "application/json": ".json",
+            "text/plain": ".txt",
+        }
+        extension = extensions.get(mime) or mimetypes.guess_extension(mime)
+        extension = extension or ".bin"
+
+        body_path = path.with_suffix(extension)
+        metadata_path = path.with_suffix(".json")
+
+        # Put every document metadata
+        metadata = {
             "url": document.url,
-            "body": base64.b64encode(document.body).decode("ascii"),
             "status_code": document.status_code,
             "content_type": document.content_type,
             "etag": document.etag,
             "params": document.params,
-            "sub_params": document.sub_params,
             "last_modified": document.last_modified,
+            "body_file": body_path.name,
+            "body_size": len(document.body),
+            "body_sha256": hashlib.sha256(document.body).hexdigest(),
         }
-        self._write_json(path, payload)
 
-    def retrieve(
-        self,
-        params: ParameterMapping,
-        data_category: RawDataCategory,
-    ) -> HttpDocument | None:
-        storage_key = HttpDocument.build_storage_key(data_category, params)
-        try:
-            with self._resolve(storage_key).open(encoding="utf-8") as archive_file:
-                data = json.load(archive_file)
-        except FileNotFoundError:
+        # Écrire le corps avant de publier les nouvelles métadonnées.
+        self._atomic_write(body_path, document.body)
+        self._atomic_write(
+            metadata_path,
+            json.dumps(
+                metadata,
+                ensure_ascii=False,
+                indent=2,
+            ).encode("utf-8"),
+        )
+
+    def load(self, *, category: RawDataCategory, params: dict[str, Any]) -> HttpDocument | None:
+
+        path = self.archive_dir / HttpDocument.build_storage_key(category, params)
+        metadata_path = path.with_suffix(".json")
+        if not metadata_path.exists():
             return None
-        try:
-            body = base64.b64decode(data["body"], validate=True)
-            return HttpDocument(
-                url=data["url"],
-                body=body,
-                status_code=data["status_code"],
-                content_type=data.get("content_type"),
-                etag=data.get("etag"),
-                params=data.get("params", {}),
-                sub_params=data.get("sub_params", {}),
-                last_modified=data.get("last_modified"),
-            )
-        except (KeyError, TypeError, ValueError, binascii.Error) as error:
-            raise ValueError(f"Invalid archived document: {storage_key}") from error
 
-    def exists(self, storage_key: str) -> bool:
-        try:
-            return self._resolve(storage_key).is_file()
-        except ValueError:
-            return False
+        with open(metadata_path, "rb") as f:
+            metadata = json.load(f)
 
-    def _resolve(self, storage_key: str) -> Path:
-        path = (self.archive_dir / storage_key).resolve()
-        try:
-            path.relative_to(self.archive_dir)
-        except ValueError as error:
-            raise ValueError("storage key must resolve inside the archive root") from error
-        return path
+        body_file = metadata.get("body_file")
+        if not body_file:
+            return None
 
-    @staticmethod
-    def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f".{path.name}.tmp")
-        try:
-            with temporary.open("w", encoding="utf-8") as archive_file:
-                json.dump(payload, archive_file, ensure_ascii=False, indent=2)
-                archive_file.flush()
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        body_path = path.with_name(body_file)
+        if not body_path.exists():
+            return None
 
+        with open(body_path, "rb") as f:
+            body = f.read()
 
-class SourceArchiveService:
-    """Persist source responses as immutable files and database metadata."""
-
-    def __init__(self, archive_root: Path = settings.archive_dir) -> None:
-        self.archive = RawArchive(archive_root)
-
-    def archive_response(
-        self,
-        session: Session,
-        document: HttpDocument,
-        *,
-        source_system: str,
-        season: str | Season,
-        entity: str | Entity,
-        category: str,
-        parser_type: str | None = None,
-        parser_version: str | None = None,
-        suffix: str,
-    ) -> SourceDocumentModel:
-        """Archive a response and return one metadata row for its content hash."""
-        body_hash = hashlib.sha256(document.body).hexdigest()
-        existing = session.scalar(
-            select(SourceDocumentModel).where(SourceDocumentModel.content_hash == body_hash)
+        return HttpDocument(
+            url=metadata.get("url", ""),
+            body=body,
+            status_code=metadata.get("status_code", 0),
+            content_type=metadata.get("content_type"),
+            etag=metadata.get("etag"),
+            params=metadata.get("params"),
+            last_modified=metadata.get("last_modified"),
         )
-        stored = self.archive.store(
-            document.body,
-            source_system=source_system,
-            season=str(season),
-            entity=str(entity),
-            category=category,
-            suffix=suffix,
-        )
-        if existing is not None:
-            return existing
-
-        metadata = SourceDocumentModel(
-            source_system=source_system,
-            url=document.url,
-            content_hash=body_hash,
-            content_type=document.content_type,
-            size=len(document.body),
-            fetched_at=datetime.now(UTC),
-            http_status=document.status_code,
-            etag=document.etag,
-            last_modified=document.last_modified,
-            storage_key=stored.storage_key,
-            parser_type=parser_type,
-            parser_version=parser_version,
-        )
-        session.add(metadata)
-        session.flush()
-        return metadata

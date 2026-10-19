@@ -24,10 +24,7 @@ def resolve_seasons(seasons: list[str]) -> list[Season]:
         assert start_year.isdigit() and end_year.isdigit(), f"Saison invalide: {season}"
         assert int(start_year) <= int(end_year), f"Saison invalide: {season}"
         resolved.extend(
-            list(
-                Season.from_code(f"{start}/{start + 1}")
-                for start in range(int(start_year), int(end_year))
-            )
+            list(Season.from_code(f"{start}/{start + 1}") for start in range(int(start_year), int(end_year)))
         )
     return resolved
 

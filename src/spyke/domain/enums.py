@@ -157,14 +157,16 @@ class RawDataCategory(StrEnum):
     """Type de données brutes importées depuis un fichier source."""
 
     CALENDAR = "CALENDAR"
+    COMPETITIONS = "COMPETITIONS"
     FDME = "FDME"
     CLUBS = "CLUBS"
     ENTITIES = "ENTITIES"
+    ENTITIES_CODE = "ENTITIES_CODE"
     ENTITY = "ENTITY"
-    
+
 
 class ArchiveMode(StrEnum):
     DISABLED = "DISABLED"  # Toujours effectuer la requête HTTP
-    USE = "USE"            # Lire le cache, sinon télécharger
-    REFRESH = "REFRESH"    # Télécharger et remplacer le cache
-    OFFLINE = "OFFLINE"    # Cache obligatoire, aucune requête HTTP
+    USE = "USE"  # Lire le cache, sinon télécharger
+    REFRESH = "REFRESH"  # Télécharger et remplacer le cache
+    OFFLINE = "OFFLINE"  # Cache obligatoire, aucune requête HTTP

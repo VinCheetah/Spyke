@@ -1,8 +1,8 @@
 from typing import Annotated
-from spyke.domain.enums import ArchiveMode
 
 import typer
 
+from spyke.domain.enums import ArchiveMode
 
 SeasonParam = Annotated[
     list[str],

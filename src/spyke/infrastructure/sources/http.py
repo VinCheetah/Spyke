@@ -7,11 +7,11 @@ from typing import Any, Self
 
 import httpx
 from bs4 import BeautifulSoup
+from charset_normalizer import from_bytes
 
 from spyke.domain.entities import Entity, Season
 from spyke.domain.enums import RawDataCategory
 
-from charset_normalizer import from_bytes
 logger = logging.getLogger(__name__)
 
 ParameterValue = str | Entity | Season
@@ -33,29 +33,29 @@ class HttpDocument:
     etag: str | None
     params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
     last_modified: str | None = None
-    
+
     @classmethod
     def build_storage_key(cls, category: RawDataCategory, params: ParameterMapping) -> str:
         category_paths: dict[RawDataCategory, tuple[str, list[str]]] = {
             RawDataCategory.FDME: ("fdme", ["season", "entity", "competition", "code"]),
-            RawDataCategory.CALENDAR: ("calendar", ["season", "entity"]),
-            RawDataCategory.CLUBS: ("clubs", ["entity"]),
-            RawDataCategory.ENTITIES: ("entities", []),
+            RawDataCategory.CALENDAR: ("calendar", ["season", "entity_code"]),
+            RawDataCategory.CLUBS: ("clubs", ["id_club"]),
+            RawDataCategory.ENTITIES: ("entities/detection", []),
+            RawDataCategory.ENTITIES_CODE: ("entities/code", []),
             RawDataCategory.ENTITY: ("entities", ["entity_type", "entity_code"]),
+            RawDataCategory.COMPETITIONS: ("competitions", ["season", "entity_code"]),
         }
         try:
             base, components = category_paths[category]
         except KeyError as error:
             raise ValueError(f"Unsupported category: {category}") from error
 
-        return f"{base}/" + "/".join(
-            cls._safe_component(str(value)) for value in cls._get_params(components, params)
-        )
-        
-    def storage_key(self, category: RawDataCategory) -> str:
+        return f"{base}/" + "/".join(cls._safe_component(str(value)) for value in cls._get_params(components, params))
+
+    def storage_key(self, category: RawDataCategory, params: dict[str, Any] | None = None) -> str:
         """Return a unique storage key for this document based on its category and parameters."""
-        return self.build_storage_key(category, self.params)
-        
+        return self.build_storage_key(category, params or {})
+
     @classmethod
     def _get_params(cls, names: Sequence[str], params: ParameterMapping) -> list[ParameterValue]:
         if missing := [name for name in names if name not in params]:
@@ -178,9 +178,7 @@ class SourceHttpClient:
                     **kwargs,
                 )
                 if self._is_transient(response):
-                    last_error = SourceHttpError(
-                        f"Transient source response: {response.status_code}"
-                    )
+                    last_error = SourceHttpError(f"Transient source response: {response.status_code}")
                     if attempt < self._retries:
                         self._sleep_before_retry(attempt)
                         continue
@@ -199,9 +197,7 @@ class SourceHttpClient:
                     f"Source returned HTTP {error.response.status_code} for {method} {path}"
                 ) from error
 
-        raise SourceHttpError(
-            f"Unable to {method.lower()} {path} after {self._retries + 1} attempt(s)"
-        ) from last_error
+        raise SourceHttpError(f"Unable to {method.lower()} {path} after {self._retries + 1} attempt(s)") from last_error
 
     @classmethod
     def _is_transient(cls, response: httpx.Response) -> bool:

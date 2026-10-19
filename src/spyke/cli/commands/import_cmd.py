@@ -4,27 +4,33 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
-from datetime import datetime, date as dt_date
+from datetime import date as dt_date
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
 
-import typer
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from spyke.cli.args import AllEntitiesParam, EntityParam, LimitParam, SeasonParam, ForceParam, DryRunParam, VerboseParam, ArchiveModeParam
 from spyke.application.imports.clubs import ClubsImporter
+from spyke.application.imports.competitions import CompetitionImporter
+from spyke.cli.args import (
+    AllEntitiesParam,
+    ArchiveModeParam,
+    DryRunParam,
+    EntityParam,
+    ForceParam,
+    LimitParam,
+    SeasonParam,
+    VerboseParam,
+)
+from spyke.cli.shared.arg_resolver import resolve_seasons
 from spyke.cli.shared.output_formatting import max_show
-from spyke.config import settings
-from spyke.cli.shared.arg_resolver import resolve_seasons, resolve_entity_type
-from spyke.domain.entities.organisation import Entity, Season
+from spyke.domain.entities.organisation import Season
 from spyke.domain.enums import ArchiveMode
-from spyke.infrastructure.ffvb.dto import ClubRecord, EntityRecord
-
+from spyke.infrastructure.ffvb.dto import ClubRecord, CompetitionRecord, EntityRecord
 
 console = Console()
 
@@ -44,15 +50,13 @@ def import_data(
     """
     ...
     """
-    from spyke.infrastructure.ffvb.client import FfvbClient
     from spyke.application.imports.entities import EntitiesImporter
     from spyke.infrastructure.database.session import DatabaseSession
+    from spyke.infrastructure.ffvb.client import FfvbClient
 
     seasons: list[Season] = resolve_seasons(seasons or [])
     entities_list: list[str] = entities or []
-    render_config_panel(
-        console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, force
-    )
+    render_config_panel(console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, force)
     ffvb_client = FfvbClient()
 
     with DatabaseSession() as session:
@@ -60,14 +64,16 @@ def import_data(
         entities: list[EntityRecord] = entities_importer.get_filtered_entities(entities_list, all_entities)
         entities_importer.enrich_entities_codes(entities)
         entities_importer.enrich_entities(entities)
-        entities_importer.import_records(entities)
+        # entities_importer.import_records(entities)
 
         club_importer = ClubsImporter(session=session, client=ffvb_client)
-        clubs: list[ClubRecord] = club_importer.get_filtered_clubs(
-            ffvb_client, entities
-        )
-        club_importer.import_records(clubs)
+        clubs: list[ClubRecord] = club_importer.get_clubs(ffvb_client, entities)
+        # club_importer.import_records(clubs)
 
+        competition_importer = CompetitionImporter(session=session, client=ffvb_client)
+        competitions: list[CompetitionRecord] = competition_importer.get_competitions(
+            entities=entities, seasons=seasons
+        )
 
 
 def render_config_panel(
@@ -75,7 +81,7 @@ def render_config_panel(
     entities: list[str],
     saisons: list[Season],
     steps: list[str],
-    limit: Optional[int],
+    limit: int | None,
     dry_run: bool,
     refresh_cache: bool,
 ) -> None:
@@ -97,7 +103,7 @@ def render_config_panel(
         "Pipeline :",
         pipeline_steps_display,
         "Mode :",
-        f"[yellow]Aperçu (dry-run)[/yellow]" if dry_run else "[bold green]Exécution[/bold green]",
+        "[yellow]Aperçu (dry-run)[/yellow]" if dry_run else "[bold green]Exécution[/bold green]",
     )
     config_grid.add_row(
         "Saison(s) :",
@@ -114,9 +120,7 @@ def render_config_panel(
         "Options :",
         f"[dim]{', '.join(options_summary) or 'défaut'}[/dim]",
         "Cache :",
-        "[yellow]Rafraîchissement forcé[/yellow]"
-        if refresh_cache
-        else "[dim]Actif (exports CSV)[/dim]",
+        "[yellow]Rafraîchissement forcé[/yellow]" if refresh_cache else "[dim]Actif (exports CSV)[/dim]",
     )
 
     console.print(
@@ -139,14 +143,14 @@ def _import_scrape(
     enrich_clubs: bool = True,
     geocode: bool = True,
     refresh_cache: bool = False,
-    timer: Optional[PipelineTimer] = None,
+    timer: PipelineTimer | None = None,
 ) -> None:
     """Étape 1 : scrape des exports CSV et import en base."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from spyke.infrastructure.database.connection import DatabaseSession
     from spyke.ingestion.importers.calendar_importer import CalendarImporter
     from spyke.scrapers.ffvb.export_scraper import get_unique_poules
-    from spyke.cli.helpers import expand_saison_inputs
 
     t_scrape_start = time.perf_counter()
     total_imported = 0
@@ -170,11 +174,7 @@ def _import_scrape(
         played = sum(1 for m in export_data if m.match_joue)
         poules = get_unique_poules(export_data)
 
-        poule_codes = {
-            (m.poule_code_ffvb or m.poule_code)
-            for m in export_data
-            if (m.poule_code_ffvb or m.poule_code)
-        }
+        poule_codes = {(m.poule_code_ffvb or m.poule_code) for m in export_data if (m.poule_code_ffvb or m.poule_code)}
         if poule_codes:
             poules_by_entity.setdefault(target_entity, set()).update(poule_codes)
         saisons_by_entity.setdefault(target_entity, set()).add(target_saison)
@@ -214,30 +214,23 @@ def _import_scrape(
             )
             session.commit()
 
-    tasks = [
-        (target_entity, target_saison) for target_saison in saisons for target_entity in entities
-    ]
+    tasks = [(target_entity, target_saison) for target_saison in saisons for target_entity in entities]
     scrape_kwargs = {"force_refresh": refresh_cache} if refresh_cache else {}
 
     t_csv_start = time.perf_counter()
     if len(tasks) > 1:
         max_workers = min(8, len(tasks))
-        console.print(
-            f"  [dim]Téléchargement parallèle de {len(tasks)} exports ({max_workers} workers)...[/dim]"
-        )
+        console.print(f"  [dim]Téléchargement parallèle de {len(tasks)} exports ({max_workers} workers)...[/dim]")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_task = {
-                executor.submit(scraper.scrape_entity, ent, sais, **scrape_kwargs): (ent, sais)
-                for ent, sais in tasks
+                executor.submit(scraper.scrape_entity, ent, sais, **scrape_kwargs): (ent, sais) for ent, sais in tasks
             }
             for future in as_completed(future_to_task):
                 ent, sais = future_to_task[future]
                 try:
                     export_data = future.result()
                 except Exception as e:
-                    console.print(
-                        f"  [cyan]●[/cyan] [bold]{ent}[/bold] [dim]({sais})[/dim] : [red]Erreur : {e}[/red]"
-                    )
+                    console.print(f"  [cyan]●[/cyan] [bold]{ent}[/bold] [dim]({sais})[/dim] : [red]Erreur : {e}[/red]")
                     continue
                 try:
                     _process_export(ent, sais, export_data)
@@ -248,12 +241,8 @@ def _import_scrape(
     else:
         for target_entity, target_saison in tasks:
             try:
-                with console.status(
-                    f"[bold cyan]Récupération export CSV pour {target_entity} ({target_saison})..."
-                ):
-                    export_data = scraper.scrape_entity(
-                        target_entity, target_saison, **scrape_kwargs
-                    )
+                with console.status(f"[bold cyan]Récupération export CSV pour {target_entity} ({target_saison})..."):
+                    export_data = scraper.scrape_entity(target_entity, target_saison, **scrape_kwargs)
             except Exception as e:
                 console.print(
                     f"  [cyan]●[/cyan] [bold]{target_entity}[/bold] [dim]({target_saison})[/dim] : [red]Erreur : {e}[/red]"
@@ -293,9 +282,7 @@ def _import_scrape(
                 session.commit()
                 entities_processed_clubs = len(poules_by_entity)
                 clubs_duration = time.perf_counter() - t_clubs_start
-                console.print(
-                    f"  [magenta]✓ Bilan clubs ({entities_processed_clubs} synchronisation)[/magenta]"
-                )
+                console.print(f"  [magenta]✓ Bilan clubs ({entities_processed_clubs} synchronisation)[/magenta]")
                 return
 
             from spyke.ingestion import IngestionOrchestrator
@@ -354,14 +341,14 @@ def _import_scrape(
 
 def _import_download(
     *,
-    limit: Optional[int] = None,
-    saison: Optional[List[str]] = None,
-    entity: Optional[List[str]] = None,
+    limit: int | None = None,
+    saison: list[str] | None = None,
+    entity: list[str] | None = None,
     concurrent: int = 5,
     verbose: bool = False,
     verify_existing: bool = False,
-    delay: Optional[float] = None,
-    timer: Optional[PipelineTimer] = None,
+    delay: float | None = None,
+    timer: PipelineTimer | None = None,
 ) -> None:
     """Étape 2 : téléchargement concurrent des PDFs.
 
@@ -371,7 +358,7 @@ def _import_download(
     3. Met à jour la base de données en batch
     """
     from spyke.infrastructure.database.connection import DatabaseSession, init_db
-    from spyke.infrastructure.database.tables import MatchDB, SaisonDB, CompetitionDB
+    from spyke.infrastructure.database.tables import CompetitionDB, MatchDB
     from sqlalchemy import or_, select
     from sqlalchemy.orm import joinedload
 
@@ -387,9 +374,7 @@ def _import_download(
         "downloaded-before-match-date": 0,
     }
 
-    status_filter = (
-        ["discovered", "downloaded", "error"] if verify_existing else ["discovered", "error"]
-    )
+    status_filter = ["discovered", "downloaded", "error"] if verify_existing else ["discovered", "error"]
 
     with DatabaseSession() as session:
         stmt = (
@@ -419,9 +404,7 @@ def _import_download(
             return
 
         if verbose:
-            console.print(
-                "  [dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]"
-            )
+            console.print("  [dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]")
 
         pdf_base = Path("data/pdfs")
 
@@ -460,16 +443,12 @@ def _import_download(
 
             if existing:
                 redownload_reason = (
-                    _get_pdf_redownload_reason(match_db, existing, today=today)
-                    if verify_existing
-                    else None
+                    _get_pdf_redownload_reason(match_db, existing, today=today) if verify_existing else None
                 )
                 if redownload_reason is None:
                     already_present.append((match_db.id, str(existing)))
                     if verbose:
-                        console.print(
-                            f"  [dim]↷ {match_db.code_match} déjà présent: {existing}[/dim]"
-                        )
+                        console.print(f"  [dim]↷ {match_db.code_match} déjà présent: {existing}[/dim]")
                     continue
 
                 forced_redownload[redownload_reason] += 1
@@ -485,9 +464,7 @@ def _import_download(
 
             download_tasks.append((match_db.id, match_db.source_url, dest_file))
             if verbose:
-                console.print(
-                    f"  [dim]→ {match_db.code_match} | {match_db.source_url} -> {dest_file}[/dim]"
-                )
+                console.print(f"  [dim]→ {match_db.code_match} | {match_db.source_url} -> {dest_file}[/dim]")
 
         # Mettre à jour les matchs dont le PDF existe déjà
         if already_present:
@@ -506,9 +483,7 @@ def _import_download(
             if forced_redownload["invalid-local-pdf"]:
                 details.append(f"{forced_redownload['invalid-local-pdf']} invalides")
             if forced_redownload["downloaded-before-match-date"]:
-                details.append(
-                    f"{forced_redownload['downloaded-before-match-date']} antérieurs à la date du match"
-                )
+                details.append(f"{forced_redownload['downloaded-before-match-date']} antérieurs à la date du match")
             forced_msg = "  [dim]↻ Retéléchargement forcé : " + ", ".join(details) + "[/dim]"
 
         console.print(
@@ -585,10 +560,7 @@ def _import_download(
         for i in range(0, len(dl_results), batch_size):
             chunk = dl_results[i : i + batch_size]
             chunk_ids = [mid for mid, _, _, _ in chunk]
-            matches_chunk = {
-                m.id: m
-                for m in session.scalars(select(MatchDB).where(MatchDB.id.in_(chunk_ids))).all()
-            }
+            matches_chunk = {m.id: m for m in session.scalars(select(MatchDB).where(MatchDB.id.in_(chunk_ids))).all()}
             for match_id, dest, success, error_msg in chunk:
                 m = matches_chunk.get(match_id)
                 if not m:
@@ -651,9 +623,9 @@ def _import_download(
 
 def _import_parse(
     *,
-    limit: Optional[int] = None,
-    saison: Optional[List[str]] = None,
-    entity: Optional[List[str]] = None,
+    limit: int | None = None,
+    saison: list[str] | None = None,
+    entity: list[str] | None = None,
     force: bool = False,
     verbose: bool = False,
     plausibility: bool = True,
@@ -662,20 +634,20 @@ def _import_parse(
     parser_name: str = "FastMatchSheetParser",
     rollup: bool = True,
     defer_player_stats: bool = True,
-    timer: Optional[PipelineTimer] = None,
+    timer: PipelineTimer | None = None,
 ) -> None:
     """Étape 3 : parsing des PDFs et enrichissement de la base."""
-    from spyke.parsers.fdme.factory import ParserFactory
     from spyke.infrastructure.database.connection import DatabaseSession, init_db, sqlite_bulk_mode
-    from spyke.ingestion import IngestionOrchestrator
     from spyke.infrastructure.database.tables import (
-        MatchDB,
-        ImportLogDB,
         CompetitionDB,
-        SaisonDB,
-        PouleDB,
         EntiteFFVBDB,
+        ImportLogDB,
+        MatchDB,
+        PouleDB,
+        SaisonDB,
     )
+    from spyke.ingestion import IngestionOrchestrator
+    from spyke.parsers.fdme.factory import ParserFactory
     from sqlalchemy import select
     from sqlalchemy.orm import joinedload
 
@@ -753,11 +725,7 @@ def _import_parse(
             needed_saisons.update({normaliser_saison(s) for s in saison if s})
         else:
             needed_saisons.update(
-                {
-                    getattr(m, "saison_code", None)
-                    for m in missing_matches
-                    if getattr(m, "saison_code", None)
-                }
+                {getattr(m, "saison_code", None) for m in missing_matches if getattr(m, "saison_code", None)}
             )
 
         for s_code in needed_saisons:
@@ -821,169 +789,164 @@ def _import_parse(
         session.flush()
         import_log_id = import_log.id
 
-        with sqlite_bulk_mode(session):
-            with make_progress(console, refresh_per_second=8) as progress:
-                task = progress.add_task(
-                    "[magenta]Parsing des feuilles de match...[/magenta]",
-                    total=len(match_pdf_pairs),
-                )
+        with sqlite_bulk_mode(session), make_progress(console, refresh_per_second=8) as progress:
+            task = progress.add_task(
+                "[magenta]Parsing des feuilles de match...[/magenta]",
+                total=len(match_pdf_pairs),
+            )
 
-                from queue import Queue
-                from threading import Thread
-                from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor
+            from queue import Queue
+            from threading import Thread
 
-                parse_queue: Queue = Queue(maxsize=150)
-                _sentinel = object()
+            parse_queue: Queue = Queue(maxsize=150)
+            _sentinel = object()
 
-                def _parse_worker(pair):
-                    m_id, p_path = pair
-                    try:
-                        res = parser.parse(p_path)
-                        return m_id, p_path, res, None
-                    except Exception as exc:
-                        return m_id, p_path, None, exc
+            def _parse_worker(pair):
+                m_id, p_path = pair
+                try:
+                    res = parser.parse(p_path)
+                    return m_id, p_path, res, None
+                except Exception as exc:
+                    return m_id, p_path, None, exc
 
-                def _producer():
-                    try:
-                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                            for item in executor.map(_parse_worker, match_pdf_pairs, chunksize=8):
-                                parse_queue.put(item)
-                    finally:
-                        parse_queue.put(_sentinel)
+            def _producer():
+                try:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        for item in executor.map(_parse_worker, match_pdf_pairs, chunksize=8):
+                            parse_queue.put(item)
+                finally:
+                    parse_queue.put(_sentinel)
 
-                producer_thread = Thread(target=_producer, daemon=True)
-                producer_thread.start()
+            producer_thread = Thread(target=_producer, daemon=True)
+            producer_thread.start()
 
-                batch_size = 200
-                is_done = False
+            batch_size = 200
+            is_done = False
 
-                while not is_done:
-                    batch_items = []
-                    while len(batch_items) < batch_size:
-                        item = parse_queue.get()
-                        if item is _sentinel:
-                            is_done = True
-                            break
-                        batch_items.append(item)
-
-                    if not batch_items:
+            while not is_done:
+                batch_items = []
+                while len(batch_items) < batch_size:
+                    item = parse_queue.get()
+                    if item is _sentinel:
+                        is_done = True
                         break
+                    batch_items.append(item)
 
-                    chunk_ids = [it[0] for it in batch_items]
-                    chunk_matches = (
-                        session.scalars(
-                            select(MatchDB)
-                            .options(
-                                joinedload(MatchDB.saison),
-                                joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
-                                joinedload(MatchDB.poule),
-                            )
-                            .where(MatchDB.id.in_(chunk_ids))
+                if not batch_items:
+                    break
+
+                chunk_ids = [it[0] for it in batch_items]
+                chunk_matches = (
+                    session.scalars(
+                        select(MatchDB)
+                        .options(
+                            joinedload(MatchDB.saison),
+                            joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
+                            joinedload(MatchDB.poule),
                         )
-                        .unique()
-                        .all()
+                        .where(MatchDB.id.in_(chunk_ids))
                     )
-                    match_map = {m.id: m for m in chunk_matches}
+                    .unique()
+                    .all()
+                )
+                match_map = {m.id: m for m in chunk_matches}
 
-                    for match_id, pdf_path, result, parse_error in batch_items:
-                        match_fresh = match_map.get(match_id)
-                        if not match_fresh:
-                            skipped_count += 1
-                            progress.advance(task, 1)
-                            continue
-
-                        if parse_error:
-                            failed += 1
-                            match_fresh.parsing_status = "error"
-                            match_fresh.remarques = str(parse_error)[:200]
-                            error_details.append(
-                                {
-                                    "file": str(pdf_path),
-                                    "errors": [str(parse_error)],
-                                }
-                            )
-                            progress.advance(task, 1)
-                            continue
-
-                        try:
-                            if result.success and result.match:
-                                was_enriched = service.enrich_from_pdf(
-                                    match_fresh,
-                                    result.match,
-                                    force=force,
-                                    defer_rollups=True,
-                                    defer_player_stats=defer_player_stats,
-                                    import_log_id=import_log_id,
-                                )
-                                if was_enriched:
-                                    enriched += 1
-                                    enriched_match_ids.append(match_fresh.id)
-                                else:
-                                    skipped_count += 1
-
-                                results.append(
-                                    {
-                                        "file": str(pdf_path),
-                                        "parse_time_ms": result.parse_time_ms,
-                                        "diagnostics": result.diagnostics,
-                                        "plausibility_report": (
-                                            result.plausibility_report.to_dict()
-                                            if result.plausibility_report
-                                            else None
-                                        ),
-                                        "enriched": was_enriched,
-                                    }
-                                )
-
-                                if result.diagnostics:
-                                    warnings_count += result.warnings_count
-                                plausibility_touched += result.plausibility_changes_count
-                                plausibility_flagged += result.plausibility_flagged_count
-
-                                if verbose and was_enriched:
-                                    m = result.match
-                                    progress.console.print(
-                                        f"  [green]✓[/green] {match_fresh.code_match}: "
-                                        f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
-                                        f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
-                                    )
-                            else:
-                                failed += 1
-                                match_fresh.parsing_status = "error"
-                                match_fresh.remarques = (
-                                    result.errors[0][:200] if result.errors else "Erreur de parsing"
-                                )
-                                error_details.append(
-                                    {
-                                        "file": str(pdf_path),
-                                        "errors": result.errors,
-                                        "diagnostics": result.diagnostics,
-                                    }
-                                )
-
-                        except Exception as e:
-                            failed += 1
-                            match_fresh.parsing_status = "error"
-                            match_fresh.remarques = str(e)[:200]
-                            error_details.append(
-                                {
-                                    "file": str(pdf_path),
-                                    "errors": [str(e)],
-                                }
-                            )
-
+                for match_id, pdf_path, result, parse_error in batch_items:
+                    match_fresh = match_map.get(match_id)
+                    if not match_fresh:
+                        skipped_count += 1
                         progress.advance(task, 1)
+                        continue
 
-                    # Commit par batch et purge de session en préservant les caches d'entités résolues
+                    if parse_error:
+                        failed += 1
+                        match_fresh.parsing_status = "error"
+                        match_fresh.remarques = str(parse_error)[:200]
+                        error_details.append(
+                            {
+                                "file": str(pdf_path),
+                                "errors": [str(parse_error)],
+                            }
+                        )
+                        progress.advance(task, 1)
+                        continue
+
                     try:
-                        session.commit()
-                        session.expunge_all()
-                        service.clear_persistence_caches(clear_all=False)
-                    except Exception:
-                        session.rollback()
-                        service.clear_persistence_caches(clear_all=True)
+                        if result.success and result.match:
+                            was_enriched = service.enrich_from_pdf(
+                                match_fresh,
+                                result.match,
+                                force=force,
+                                defer_rollups=True,
+                                defer_player_stats=defer_player_stats,
+                                import_log_id=import_log_id,
+                            )
+                            if was_enriched:
+                                enriched += 1
+                                enriched_match_ids.append(match_fresh.id)
+                            else:
+                                skipped_count += 1
 
-                producer_thread.join()
+                            results.append(
+                                {
+                                    "file": str(pdf_path),
+                                    "parse_time_ms": result.parse_time_ms,
+                                    "diagnostics": result.diagnostics,
+                                    "plausibility_report": (
+                                        result.plausibility_report.to_dict() if result.plausibility_report else None
+                                    ),
+                                    "enriched": was_enriched,
+                                }
+                            )
+
+                            if result.diagnostics:
+                                warnings_count += result.warnings_count
+                            plausibility_touched += result.plausibility_changes_count
+                            plausibility_flagged += result.plausibility_flagged_count
+
+                            if verbose and was_enriched:
+                                m = result.match
+                                progress.console.print(
+                                    f"  [green]✓[/green] {match_fresh.code_match}: "
+                                    f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
+                                    f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
+                                )
+                        else:
+                            failed += 1
+                            match_fresh.parsing_status = "error"
+                            match_fresh.remarques = result.errors[0][:200] if result.errors else "Erreur de parsing"
+                            error_details.append(
+                                {
+                                    "file": str(pdf_path),
+                                    "errors": result.errors,
+                                    "diagnostics": result.diagnostics,
+                                }
+                            )
+
+                    except Exception as e:
+                        failed += 1
+                        match_fresh.parsing_status = "error"
+                        match_fresh.remarques = str(e)[:200]
+                        error_details.append(
+                            {
+                                "file": str(pdf_path),
+                                "errors": [str(e)],
+                            }
+                        )
+
+                    progress.advance(task, 1)
+
+                # Commit par batch et purge de session en préservant les caches d'entités résolues
+                try:
+                    session.commit()
+                    session.expunge_all()
+                    service.clear_persistence_caches(clear_all=False)
+                except Exception:
+                    session.rollback()
+                    service.clear_persistence_caches(clear_all=True)
+
+            producer_thread.join()
 
         # Commit final
         import_log = session.get(ImportLogDB, import_log_id)
@@ -1001,9 +964,7 @@ def _import_parse(
                 },
                 ensure_ascii=False,
             )
-            import_log.status = (
-                "success" if failed == 0 else "partial" if enriched > 0 else "failed"
-            )
+            import_log.status = "success" if failed == 0 else "partial" if enriched > 0 else "failed"
         try:
             session.commit()
             session.expunge_all()
@@ -1088,9 +1049,7 @@ def _import_parse(
                             items_unit="agrégats",
                         )
                 except Exception as exc:
-                    console.print(
-                        f"  [yellow]⚠ Erreur lors de l'actualisation consolidée des rollups : {exc}[/yellow]"
-                    )
+                    console.print(f"  [yellow]⚠ Erreur lors de l'actualisation consolidée des rollups : {exc}[/yellow]")
 
     total_parse_duration = time.perf_counter() - t_parse_start
     if timer:
@@ -1151,9 +1110,9 @@ def _import_parse(
 
 def _import_stream(
     *,
-    limit: Optional[int] = None,
-    saison: Optional[List[str]] = None,
-    entity: Optional[List[str]] = None,
+    limit: int | None = None,
+    saison: list[str] | None = None,
+    entity: list[str] | None = None,
     verbose: bool = False,
     concurrent: int = 10,
     plausibility: bool = True,
@@ -1162,15 +1121,16 @@ def _import_stream(
     parser_name: str = "FastMatchSheetParser",
     rollup: bool = True,
     defer_player_stats: bool = True,
-    timer: Optional[PipelineTimer] = None,
+    timer: PipelineTimer | None = None,
 ) -> None:
     """Mode streaming : download → parse → DB, sans conserver les PDFs."""
     from concurrent.futures import ThreadPoolExecutor
+
     import httpx
-    from spyke.parsers.fdme.factory import ParserFactory
     from spyke.infrastructure.database.connection import DatabaseSession, init_db, sqlite_bulk_mode
+    from spyke.infrastructure.database.tables import ImportLogDB, MatchDB
     from spyke.ingestion import IngestionOrchestrator
-    from spyke.infrastructure.database.tables import MatchDB, ImportLogDB
+    from spyke.parsers.fdme.factory import ParserFactory
     from sqlalchemy import or_, select
 
     init_db()
@@ -1221,184 +1181,177 @@ def _import_stream(
     enriched_match_ids: list[int] = []
 
     limits = httpx.Limits(max_connections=max_workers + 5, max_keepalive_connections=max_workers)
-    with httpx.Client(timeout=30, follow_redirects=True, limits=limits) as http:
-        with DatabaseSession() as session:
-            with sqlite_bulk_mode(session):
-                orchestrator = IngestionOrchestrator(session=session, saison="2024/2025")
-                service = orchestrator.match_details_stage
+    with httpx.Client(timeout=30, follow_redirects=True, limits=limits) as http, DatabaseSession() as session:
+        with sqlite_bulk_mode(session):
+            orchestrator = IngestionOrchestrator(session=session, saison="2024/2025")
+            service = orchestrator.match_details_stage
 
-                import_log = ImportLogDB(
-                    operation="stream-pipeline",
-                    source="streaming",
-                    total_attempted=len(matches),
-                    status="running",
-                )
-                session.add(import_log)
-                session.flush()
-                import_log_id = import_log.id
+            import_log = ImportLogDB(
+                operation="stream-pipeline",
+                source="streaming",
+                total_attempted=len(matches),
+                status="running",
+            )
+            session.add(import_log)
+            session.flush()
+            import_log_id = import_log.id
 
-                targets = [(m.id, m.code_match, m.source_url) for m in matches if m.source_url]
-                skipped_no_url = len(matches) - len(targets)
+            targets = [(m.id, m.code_match, m.source_url) for m in matches if m.source_url]
+            skipped_no_url = len(matches) - len(targets)
 
-                def _fetch_and_parse(item):
-                    m_id, code_match, url = item
-                    try:
-                        resp = http.get(url)
-                        resp.raise_for_status()
-                        if not resp.content[:5].startswith(b"%PDF"):
-                            return m_id, code_match, None, "Réponse non-PDF"
-                        parsed = parser.parse(resp.content)
-                        return m_id, code_match, parsed, None
-                    except Exception as exc:
-                        return m_id, code_match, None, str(exc)
-
-                with make_progress(console, refresh_per_second=8) as progress:
-                    task = progress.add_task(
-                        "[cyan]Streaming (Téléchargement + Analyse)...[/cyan]",
-                        total=len(matches),
-                    )
-                    if skipped_no_url:
-                        progress.advance(task, skipped_no_url)
-
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        for m_id, code_match, result, err_msg in executor.map(
-                            _fetch_and_parse, targets
-                        ):
-                            match_fresh = session.get(MatchDB, m_id)
-                            if not match_fresh:
-                                progress.advance(task, 1)
-                                continue
-
-                            if err_msg:
-                                failed += 1
-                                match_fresh.parsing_status = "error"
-                                match_fresh.remarques = err_msg[:200]
-                            elif result and result.success and result.match:
-                                downloaded += 1
-                                was_enriched = service.enrich_from_pdf(
-                                    match_fresh,
-                                    result.match,
-                                    force=True,
-                                    defer_rollups=True,
-                                    defer_player_stats=defer_player_stats,
-                                    import_log_id=import_log_id,
-                                )
-                                if was_enriched:
-                                    enriched += 1
-                                    enriched_match_ids.append(match_fresh.id)
-
-                                if verbose:
-                                    m = result.match
-                                    progress.console.print(
-                                        f"  [green]✓[/green] {match_fresh.code_match}: "
-                                        f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
-                                        f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
-                                    )
-                            else:
-                                downloaded += 1
-                                failed += 1
-                                match_fresh.parsing_status = "error"
-                                match_fresh.remarques = (
-                                    result.errors[0][:200]
-                                    if result and result.errors
-                                    else "Erreur de parsing"
-                                )
-
-                            progress.advance(task, 1)
-
-                            # Commit par batch et purge de session
-                            if (enriched + failed) % 50 == 0 and (enriched + failed) > 0:
-                                try:
-                                    session.commit()
-                                    session.expunge_all()
-                                    service.clear_persistence_caches(clear_all=False)
-                                except Exception:
-                                    session.rollback()
-                                    service.clear_persistence_caches(clear_all=True)
-
-                stream_work_duration = time.perf_counter() - t_stream_start
-
-                import_log = session.get(ImportLogDB, import_log_id)
-                if import_log:
-                    import_log.finished_at = datetime.now()
-                    import_log.imported = enriched
-                    import_log.errors = failed
-                    import_log.status = (
-                        "success" if failed == 0 else "partial" if enriched > 0 else "failed"
-                    )
+            def _fetch_and_parse(item):
+                m_id, code_match, url = item
                 try:
+                    resp = http.get(url)
+                    resp.raise_for_status()
+                    if not resp.content[:5].startswith(b"%PDF"):
+                        return m_id, code_match, None, "Réponse non-PDF"
+                    parsed = parser.parse(resp.content)
+                    return m_id, code_match, parsed, None
+                except Exception as exc:
+                    return m_id, code_match, None, str(exc)
+
+            with make_progress(console, refresh_per_second=8) as progress:
+                task = progress.add_task(
+                    "[cyan]Streaming (Téléchargement + Analyse)...[/cyan]",
+                    total=len(matches),
+                )
+                if skipped_no_url:
+                    progress.advance(task, skipped_no_url)
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    for m_id, code_match, result, err_msg in executor.map(_fetch_and_parse, targets):
+                        match_fresh = session.get(MatchDB, m_id)
+                        if not match_fresh:
+                            progress.advance(task, 1)
+                            continue
+
+                        if err_msg:
+                            failed += 1
+                            match_fresh.parsing_status = "error"
+                            match_fresh.remarques = err_msg[:200]
+                        elif result and result.success and result.match:
+                            downloaded += 1
+                            was_enriched = service.enrich_from_pdf(
+                                match_fresh,
+                                result.match,
+                                force=True,
+                                defer_rollups=True,
+                                defer_player_stats=defer_player_stats,
+                                import_log_id=import_log_id,
+                            )
+                            if was_enriched:
+                                enriched += 1
+                                enriched_match_ids.append(match_fresh.id)
+
+                            if verbose:
+                                m = result.match
+                                progress.console.print(
+                                    f"  [green]✓[/green] {match_fresh.code_match}: "
+                                    f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
+                                    f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
+                                )
+                        else:
+                            downloaded += 1
+                            failed += 1
+                            match_fresh.parsing_status = "error"
+                            match_fresh.remarques = (
+                                result.errors[0][:200] if result and result.errors else "Erreur de parsing"
+                            )
+
+                        progress.advance(task, 1)
+
+                        # Commit par batch et purge de session
+                        if (enriched + failed) % 50 == 0 and (enriched + failed) > 0:
+                            try:
+                                session.commit()
+                                session.expunge_all()
+                                service.clear_persistence_caches(clear_all=False)
+                            except Exception:
+                                session.rollback()
+                                service.clear_persistence_caches(clear_all=True)
+
+            stream_work_duration = time.perf_counter() - t_stream_start
+
+            import_log = session.get(ImportLogDB, import_log_id)
+            if import_log:
+                import_log.finished_at = datetime.now()
+                import_log.imported = enriched
+                import_log.errors = failed
+                import_log.status = "success" if failed == 0 else "partial" if enriched > 0 else "failed"
+            try:
+                session.commit()
+                session.expunge_all()
+                service.clear_persistence_caches(clear_all=False)
+            except Exception:
+                session.rollback()
+                service.clear_persistence_caches(clear_all=True)
+
+            # Calcul en lot des statistiques joueurs si différé
+            if defer_player_stats and enriched_match_ids:
+                t_stats_start = time.perf_counter()
+                with make_progress(console, refresh_per_second=8) as stats_progress:
+                    stats_task = stats_progress.add_task(
+                        "[cyan]Calcul des statistiques joueurs (streaming)...",
+                        total=len(enriched_match_ids),
+                    )
+                    service.compute_player_stats(
+                        enriched_match_ids,
+                        chunk_size=50,
+                        progress_callback=lambda n: stats_progress.advance(stats_task, n),
+                    )
+                    try:
+                        session.commit()
+                        session.expunge_all()
+                        service.clear_persistence_caches(clear_all=False)
+                    except Exception:
+                        session.rollback()
+                        service.clear_persistence_caches(clear_all=True)
+
+                stats_duration = time.perf_counter() - t_stats_start
+                console.print(
+                    f"  [cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} "
+                    f"({format_rate(len(enriched_match_ids), stats_duration, 'matchs')})[/cyan]"
+                )
+                if timer:
+                    timer.record_sub_step(
+                        "stream",
+                        "player_stats",
+                        "Calcul Stats Joueurs (différé)",
+                        stats_duration,
+                        items_count=len(enriched_match_ids),
+                        items_unit="matchs",
+                    )
+
+        # Actualisation consolidée des rollups si demandé
+        if rollup and enriched_match_ids:
+            from spyke.analysis.reporting.rollups import RollupStatsService
+
+            t_rollups_start = time.perf_counter()
+            with console.status(
+                f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)...",
+                spinner="dots",
+            ):
+                try:
+                    rollup_service = RollupStatsService(session)
+                    rollup_summary = rollup_service.apply_batch_deltas(enriched_match_ids)
                     session.commit()
-                    session.expunge_all()
-                    service.clear_persistence_caches(clear_all=False)
-                except Exception:
-                    session.rollback()
-                    service.clear_persistence_caches(clear_all=True)
-
-                # Calcul en lot des statistiques joueurs si différé
-                if defer_player_stats and enriched_match_ids:
-                    t_stats_start = time.perf_counter()
-                    with make_progress(console, refresh_per_second=8) as stats_progress:
-                        stats_task = stats_progress.add_task(
-                            "[cyan]Calcul des statistiques joueurs (streaming)...",
-                            total=len(enriched_match_ids),
-                        )
-                        service.compute_player_stats(
-                            enriched_match_ids,
-                            chunk_size=50,
-                            progress_callback=lambda n: stats_progress.advance(stats_task, n),
-                        )
-                        try:
-                            session.commit()
-                            session.expunge_all()
-                            service.clear_persistence_caches(clear_all=False)
-                        except Exception:
-                            session.rollback()
-                            service.clear_persistence_caches(clear_all=True)
-
-                    stats_duration = time.perf_counter() - t_stats_start
+                    rollups_duration = time.perf_counter() - t_rollups_start
                     console.print(
-                        f"  [cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} "
-                        f"({format_rate(len(enriched_match_ids), stats_duration, 'matchs')})[/cyan]"
+                        f"  [magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} "
+                        f"({format_rate(len(enriched_match_ids), rollups_duration, 'matchs')})[/magenta]"
                     )
                     if timer:
                         timer.record_sub_step(
                             "stream",
-                            "player_stats",
-                            "Calcul Stats Joueurs (différé)",
-                            stats_duration,
+                            "rollups",
+                            "Actualisation Rollups Consolidés",
+                            rollups_duration,
                             items_count=len(enriched_match_ids),
                             items_unit="matchs",
                         )
-
-            # Actualisation consolidée des rollups si demandé
-            if rollup and enriched_match_ids:
-                from spyke.analysis.reporting.rollups import RollupStatsService
-
-                t_rollups_start = time.perf_counter()
-                with console.status(
-                    f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)...",
-                    spinner="dots",
-                ):
-                    try:
-                        rollup_service = RollupStatsService(session)
-                        rollup_summary = rollup_service.apply_batch_deltas(enriched_match_ids)
-                        session.commit()
-                        rollups_duration = time.perf_counter() - t_rollups_start
-                        console.print(
-                            f"  [magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} "
-                            f"({format_rate(len(enriched_match_ids), rollups_duration, 'matchs')})[/magenta]"
-                        )
-                        if timer:
-                            timer.record_sub_step(
-                                "stream",
-                                "rollups",
-                                "Actualisation Rollups Consolidés",
-                                rollups_duration,
-                                items_count=len(enriched_match_ids),
-                                items_unit="matchs",
-                            )
-                    except Exception as exc:
-                        console.print(f"  [yellow]⚠ Erreur rollups streaming : {exc}[/yellow]")
+                except Exception as exc:
+                    console.print(f"  [yellow]⚠ Erreur rollups streaming : {exc}[/yellow]")
 
     total_stream_duration = time.perf_counter() - t_stream_start
     stream_rate = format_rate(enriched, total_stream_duration, "matchs")
@@ -1416,61 +1369,3 @@ def _import_stream(
         f"\n[green]✓ {enriched} enrichis en {format_duration(total_stream_duration)} ({stream_rate})[/green]"
         + (f" [dim]│[/dim] [red]{failed} erreurs[/red]" if failed else "")
     )
-
-
-def _cleanup_parsed_pdfs(
-    *,
-    saison: Optional[List[str]] = None,
-    verbose: bool = False,
-    timer: Optional[PipelineTimer] = None,
-) -> None:
-    """Supprime les PDFs des matchs parsés avec succès."""
-    from spyke.infrastructure.database.connection import DatabaseSession
-    from spyke.infrastructure.database.tables import MatchDB
-    from sqlalchemy import select
-
-    t_clean_start = time.perf_counter()
-    with DatabaseSession() as session:
-        parsed_codes = set(
-            session.scalars(
-                select(MatchDB.code_match).where(MatchDB.parsing_status == "parsed")
-            ).all()
-        )
-
-    if not parsed_codes:
-        return
-
-    pdf_base = Path("data/pdfs")
-    if not pdf_base.exists():
-        return
-
-    deleted = 0
-    for pdf_file in pdf_base.glob("**/*.pdf"):
-        stem = pdf_file.stem
-        code = extract_match_code_from_pdf_path(pdf_file)
-        if code in parsed_codes or stem in parsed_codes:
-            # Filtrer par saison si demandé
-            if saison:
-                normalized = saisons_to_db_codes(saison)
-                if not any(ns in str(pdf_file) for ns in normalized):
-                    continue
-            try:
-                pdf_file.unlink()
-                deleted += 1
-            except Exception:
-                pass
-
-    clean_duration = time.perf_counter() - t_clean_start
-    if deleted:
-        console.print(
-            f"[dim]🗑 {deleted} PDFs supprimés en {format_duration(clean_duration)} (déjà parsés)[/dim]"
-        )
-    if timer:
-        timer.record_sub_step(
-            "parse",
-            "cleanup",
-            "Nettoyage PDFs locaux",
-            clean_duration,
-            items_count=deleted,
-            items_unit="PDFs",
-        )

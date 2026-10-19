@@ -73,11 +73,7 @@ class FfvbTextParser:
 
     def _coaches(self, lines: list[str], side: str) -> list[ParsedOfficial]:
         pattern = re.compile(rf"^ENTRAINEUR\s+{side}\s*:\s*(.+)$", re.I)
-        return [
-            ParsedOfficial(match.group(1).strip(), "coach")
-            for line in lines
-            if (match := pattern.match(line))
-        ]
+        return [ParsedOfficial(match.group(1).strip(), "coach") for line in lines if (match := pattern.match(line))]
 
     @staticmethod
     def _officials(lines: list[str]) -> list[ParsedOfficial]:
@@ -97,10 +93,7 @@ class FfvbTextParser:
         scores = re.findall(r"(\d{1,2})\s*[-/]\s*(\d{1,2})", raw_scores)
         if not scores:
             raise FfvbFdmeParseError("No valid set score found")
-        return tuple(
-            ParsedSet(index, int(score_a), int(score_b))
-            for index, (score_a, score_b) in enumerate(scores, 1)
-        )
+        return tuple(ParsedSet(index, int(score_a), int(score_b)) for index, (score_a, score_b) in enumerate(scores, 1))
 
     @staticmethod
     def _value(lines: list[str], pattern: str) -> str | None:

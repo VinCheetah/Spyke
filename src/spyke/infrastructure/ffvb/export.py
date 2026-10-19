@@ -104,9 +104,7 @@ class FfvbCalendarExportParser:
         season: str,
         source_url: str | None = None,
     ) -> list[ExportMatchRecord]:
-        text = (
-            body.decode("utf-8-sig") if body.startswith(b"\xef\xbb\xbf") else body.decode("latin-1")
-        )
+        text = body.decode("utf-8-sig") if body.startswith(b"\xef\xbb\xbf") else body.decode("latin-1")
         reader = csv.reader(io.StringIO(text), delimiter=";")
         rows = list(reader)
         if not rows:
@@ -129,9 +127,7 @@ class FfvbCalendarExportParser:
         season: str,
         pool_code: str | None = None,
     ) -> list[ExportMatchRecord]:
-        document = client.fetch_calendar_export(
-            entity_code=entity_code, season=season, pool_code=pool_code
-        )
+        document = client.fetch_calendar_export(entity_code=entity_code, season=season, pool_code=pool_code)
         return self.parse(
             document.body,
             entity_code=entity_code,
@@ -177,11 +173,7 @@ class FfvbCalendarExportParser:
             match_time=value("heure"),
             venue=value("salle"),
             referees=tuple(_parse_referees(row, indexes)),
-            line_judges=tuple(
-                value(name)
-                for name in ("jdl1_nom", "jdl2_nom", "jdl3_nom", "jdl4_nom")
-                if value(name)
-            ),
+            line_judges=tuple(value(name) for name in ("jdl1_nom", "jdl2_nom", "jdl3_nom", "jdl4_nom") if value(name)),
             scorers=tuple(value(name) for name in ("mrq1_nom", "mrq2_nom") if value(name)),
             winner=value("vainqueur"),
             forfeit=value("forfait").upper() in {"P", "OUI", "FORFAIT", "1"},
@@ -247,6 +239,4 @@ def _parse_referees(row: list[str], indexes: dict[str, int]) -> list[ArbitreReco
 
 def _is_placeholder(home: str | None, away: str | None) -> bool:
     placeholders = {"x", "xx", "xxx", "xxxx", "xxxxx", "exempt", "-", "."}
-    return (home or "").strip().lower() in placeholders or (
-        away or ""
-    ).strip().lower() in placeholders
+    return (home or "").strip().lower() in placeholders or (away or "").strip().lower() in placeholders

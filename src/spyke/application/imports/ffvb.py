@@ -5,9 +5,8 @@ from typing import Any, TypeVar
 
 from sqlalchemy.orm import Session
 
-from spyke.config import settings
-from spyke.domain.entities.organisation import Season
 from spyke.application.imports.referentials import ImportSummary, ReferentialImporter
+from spyke.config import settings
 from spyke.infrastructure.database.models import ImportRunModel
 from spyke.infrastructure.ffvb.client import FfvbClient, decode_json
 from spyke.infrastructure.ffvb.parsers import JsonReferentialParser

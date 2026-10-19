@@ -143,9 +143,7 @@ class ReferentialImporter:
         self.session.commit()
         return ImportSummary(len(records), created, updated)
 
-    def _find_or_create(
-        self, model_type: Any, external_id: str, **values: object
-    ) -> tuple[Any, bool]:
+    def _find_or_create(self, model_type: Any, external_id: str, **values: object) -> tuple[Any, bool]:
         identifier = self.session.scalar(
             select(ExternalIdentifierModel).where(
                 ExternalIdentifierModel.source_system == self.source_system,
@@ -196,9 +194,7 @@ class ReferentialImporter:
             self.session.flush()
         return season
 
-    def _team(
-        self, competition: CompetitionModel, club_id: int, external_id: str
-    ) -> TeamSeasonModel:
+    def _team(self, competition: CompetitionModel, club_id: int, external_id: str) -> TeamSeasonModel:
         team = self.session.scalar(
             select(TeamSeasonModel).where(
                 TeamSeasonModel.competition_id == competition.id,

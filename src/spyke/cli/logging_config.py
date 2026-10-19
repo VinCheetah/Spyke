@@ -7,7 +7,7 @@ def configure_logging(
     log_file: Path | None = None,
 ) -> None:
     root = logging.getLogger()
-    
+
     # --- AJOUTEZ CECI POUR NETTOYER LES ANCIENS HANDLERS ---
     if root.hasHandlers():
         root.handlers.clear()

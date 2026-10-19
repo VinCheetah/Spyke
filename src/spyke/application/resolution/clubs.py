@@ -109,9 +109,7 @@ class ClubResolver:
             )
         return self._persist(result, external_id, persist)
 
-    def _persist(
-        self, result: ResolutionResult, external_id: str | None, enabled: bool
-    ) -> ResolutionResult:
+    def _persist(self, result: ResolutionResult, external_id: str | None, enabled: bool) -> ResolutionResult:
         if not enabled:
             return result
         existing = self.session.scalar(

@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
-from spyke.domain.enums import Category, Division, Echelon, Gender, MatchStatus
+from spyke.domain.enums import Echelon, RoleReferee
 
 
 class Record:
@@ -12,9 +11,7 @@ class Record:
     def external_id(self) -> str:
         """Return the external identifier for the record."""
         raise NotImplementedError("Subclasses must implement the external_id property.")
-    
-    # How can i check the type of the attribute to ensure the value is correct ?
-    
+
     def enrich(self, **kwargs: Any) -> None:
         """Enrich the record with additional attributes."""
         for key, value in kwargs.items():
@@ -24,19 +21,22 @@ class Record:
                 if getattr(self, key) is None:
                     setattr(self, key, value)
                 else:
-                    raise ValueError(f"Attribute '{key}' already has a value and cannot be overwritten. (Current value: {getattr(self, key)!r}, New value: {value!r}) of {self.external_id}")
+                    raise ValueError(
+                        f"Attribute '{key}' already has a value and cannot be overwritten. (Current value: {getattr(self, key)!r}, New value: {value!r}) of {self.external_id}"
+                    )
             else:
                 raise AttributeError(f"Attribute '{key}' does not exist on {self.__class__.__name__}.")
 
 
 @dataclass
-class ArbitreRecord:
+class RefereeRecord(Record):
     """Official identity as reported by the FFVB calendar export."""
 
     licence: str | None
     name: str
     entity: str | None = None
     department: str | None = None
+    role: RoleReferee | None = None
 
 
 @dataclass
@@ -52,7 +52,7 @@ class EntityRecord(Record):
     president: str | None = None
     parents_code: list[str] | None = None
     clubs_code: list[str] | None = None
-    
+
     @property
     def external_id(self) -> str:
         """Return the external identifier for the entity record."""
@@ -63,36 +63,45 @@ class EntityRecord(Record):
 class ClubRecord(Record):
     code_ffvb: str
     name: str
-    city: str | None = None
-    department: str | None = None
-    entity_code_ffvb: str | None = None
+    committee_code: str | None = None
+    league_code: str | None = None
+    correspondant: str | None = None
     email: str | None = None
     website: str | None = None
-    phone_number: str | None = None
-    headquarters_address: str | None = None
-    colors: list[str] | None = None
+    phone_numbers: list[str] | None = None
+    headquarters_address: list[str] | None = None
+    colors: str | None = None
 
 
 @dataclass
-class CompetitionRecord:
-    external_id: str
+class PouleRecord(Record):
     name: str
-    code: str
-    season_start: int
-    season_end: int
-    organizer_external_id: str
-    gender: Gender
-    category: Category
-    echelon: Echelon
-    division: Division
+    code: str | None = None
+    division: str | None = None
+    tour: str | None = None
 
 
 @dataclass
-class MatchRecord:
-    external_id: str
+class CompetitionRecord(Record):
+    name: str
+    entity_code: str
+    season_start: int
+    pools: list[PouleRecord] | None = None
+
+
+@dataclass
+class MatchRecord(Record):
     code: str
-    competition_external_id: str
-    home_club_external_id: str
-    away_club_external_id: str
-    scheduled_at: datetime
-    status: MatchStatus = MatchStatus.SCHEDULED
+    entity: str | None
+    a_team: str | None
+    b_team: str | None
+    a_club_code: str | None
+    b_club_code: str | None
+    score: tuple[str, str] | None = None
+    sets: list[tuple[int, int]] | None = None
+    date: str | None = None
+    time: str | None = None
+    journee: str | None = None
+    venue: str | None = None
+    referees: list[RefereeRecord] | None = None
+    marqueurs: list[RefereeRecord] | None = None

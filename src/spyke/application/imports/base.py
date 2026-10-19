@@ -1,11 +1,11 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from spyke.infrastructure.database.base import Base
+from spyke.infrastructure.database.session import Session
 from spyke.infrastructure.ffvb.client import FfvbClient
 from spyke.infrastructure.ffvb.dto import Record
-from abc import abstractmethod, ABC
-from spyke.infrastructure.database.session import Session
 
 
 @dataclass(frozen=True)

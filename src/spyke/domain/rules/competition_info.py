@@ -113,9 +113,7 @@ def determine_competition_info(
             division = Division.JEUNES_REGIONALE
         elif is_prereg:
             division = Division.PRE_REGIONALE
-        elif re.search(
-            r"\b(PRE\s*-?\s*NAT(?:IONAL(?:E|AUX|ES?)?)?|PRE_?NAT|PRENAT|PNM|PNF)\b", clean_text
-        ):
+        elif re.search(r"\b(PRE\s*-?\s*NAT(?:IONAL(?:E|AUX|ES?)?)?|PRE_?NAT|PRENAT|PNM|PNF)\b", clean_text):
             division = Division.PRE_NATIONALE
         elif re.search(r"\b(REGIONALE?\s*1|R1|R1[MF])\b", clean_text):
             division = Division.REGIONALE_1
