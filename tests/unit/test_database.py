@@ -36,12 +36,8 @@ def test_schema_can_be_created_and_relations_persist_on_sqlite() -> None:
             echelon=Echelon.REGIONAL,
             division=Division.REGIONALE_1,
         )
-        home = TeamSeasonModel(
-            id=1, season=season, competition=competition, club=club, name="Club A"
-        )
-        away = TeamSeasonModel(
-            id=2, season=season, competition=competition, club=club, name="Club B"
-        )
+        home = TeamSeasonModel(id=1, season=season, competition=competition, club=club, name="Club A")
+        away = TeamSeasonModel(id=2, season=season, competition=competition, club=club, name="Club B")
         venue = VenueModel(id=1, name="Gymnase", coordinate={"latitude": 43.6, "longitude": 1.4})
         match = MatchModel(
             id=1,

@@ -21,9 +21,7 @@ def test_club_resolution_prefers_external_identifier() -> None:
         session.add_all([league, club])
         session.flush()
         session.add(
-            ExternalIdentifierModel(
-                source_system="ffvb", entity_type="club", entity_id=club.id, external_id="42"
-            )
+            ExternalIdentifierModel(source_system="ffvb", entity_type="club", entity_id=club.id, external_id="42")
         )
         session.commit()
 

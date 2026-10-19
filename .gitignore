@@ -35,6 +35,7 @@ build/
 # Spyke local data
 data/
 logs/
+notebooks/
 
 # Database
 *.sqlite

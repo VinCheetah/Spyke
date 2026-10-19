@@ -82,9 +82,7 @@ ROW = [
     "",
 ]
 PLACEHOLDER_ROW = ["LIIDF", "2", "PMAA002", "", "", "", "xxxxx", "0590002", "VB PARIS"]
-EXPORT = (";".join(HEADER) + "\n" + ";".join(ROW) + "\n" + ";".join(PLACEHOLDER_ROW)).encode(
-    "latin-1"
-)
+EXPORT = (";".join(HEADER) + "\n" + ";".join(ROW) + "\n" + ";".join(PLACEHOLDER_ROW)).encode("latin-1")
 
 
 def test_ffvb_export_parser_preserves_structured_match_data() -> None:

@@ -55,9 +55,7 @@ PAYLOADS: dict[str, Any] = {
 
 def test_ffvb_import_archives_each_response_and_completes_run(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        payload_path = (
-            "/clubs" if request.url.path.endswith("rech_aff_club.php") else request.url.path
-        )
+        payload_path = "/clubs" if request.url.path.endswith("rech_aff_club.php") else request.url.path
         return httpx.Response(
             200,
             content=json.dumps(PAYLOADS[payload_path]).encode(),

@@ -75,9 +75,7 @@ def upgrade() -> None:
         sa.Column("phone_number", sa.String(length=32), nullable=True),
         sa.Column("colors", JsonValue(), nullable=False),
         sa.Column("coordinate", GeoPoint(), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["league_id"], ["league.id"], name=op.f("fk_club_league_id_league")
-        ),
+        sa.ForeignKeyConstraint(["league_id"], ["league.id"], name=op.f("fk_club_league_id_league")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_club")),
         sa.UniqueConstraint("code_ffvb", name=op.f("uq_club_code_ffvb")),
     )
@@ -159,12 +157,8 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(
-            ["organizer_id"], ["league.id"], name=op.f("fk_competition_organizer_id_league")
-        ),
-        sa.ForeignKeyConstraint(
-            ["season_id"], ["season.id"], name=op.f("fk_competition_season_id_season")
-        ),
+        sa.ForeignKeyConstraint(["organizer_id"], ["league.id"], name=op.f("fk_competition_organizer_id_league")),
+        sa.ForeignKeyConstraint(["season_id"], ["season.id"], name=op.f("fk_competition_season_id_season")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_competition")),
         sa.UniqueConstraint("season_id", "code_competition", name="uq_competition_season_code"),
     )
@@ -181,9 +175,7 @@ def upgrade() -> None:
             ["competition.id"],
             name=op.f("fk_team_season_competition_id_competition"),
         ),
-        sa.ForeignKeyConstraint(
-            ["season_id"], ["season.id"], name=op.f("fk_team_season_season_id_season")
-        ),
+        sa.ForeignKeyConstraint(["season_id"], ["season.id"], name=op.f("fk_team_season_season_id_season")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_team_season")),
         sa.UniqueConstraint("season_id", "competition_id", "name", name="uq_team_season_name"),
     )
@@ -215,18 +207,12 @@ def upgrade() -> None:
         sa.Column("home_sets", sa.Integer(), nullable=True),
         sa.Column("away_sets", sa.Integer(), nullable=True),
         sa.Column("remarks", sa.String(length=2000), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["away_team_id"], ["team_season.id"], name=op.f("fk_match_away_team_id_team_season")
-        ),
+        sa.ForeignKeyConstraint(["away_team_id"], ["team_season.id"], name=op.f("fk_match_away_team_id_team_season")),
         sa.ForeignKeyConstraint(
             ["competition_id"], ["competition.id"], name=op.f("fk_match_competition_id_competition")
         ),
-        sa.ForeignKeyConstraint(
-            ["home_team_id"], ["team_season.id"], name=op.f("fk_match_home_team_id_team_season")
-        ),
-        sa.ForeignKeyConstraint(
-            ["season_id"], ["season.id"], name=op.f("fk_match_season_id_season")
-        ),
+        sa.ForeignKeyConstraint(["home_team_id"], ["team_season.id"], name=op.f("fk_match_home_team_id_team_season")),
+        sa.ForeignKeyConstraint(["season_id"], ["season.id"], name=op.f("fk_match_season_id_season")),
         sa.ForeignKeyConstraint(["venue_id"], ["venue.id"], name=op.f("fk_match_venue_id_venue")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_match")),
         sa.UniqueConstraint("code", name=op.f("uq_match_code")),

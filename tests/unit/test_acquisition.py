@@ -69,9 +69,7 @@ def test_http_client_retries_transient_responses() -> None:
         return httpx.Response(200, content=b"{}", request=request)
 
     transport = httpx.MockTransport(handler)
-    with SourceHttpClient(
-        base_url="https://example.test", retries=1, transport=transport
-    ) as client:
+    with SourceHttpClient(base_url="https://example.test", retries=1, transport=transport) as client:
         document = client.fetch("/clubs")
 
     assert calls == 2
