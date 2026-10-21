@@ -65,15 +65,11 @@ class Season:
         return f"{str(self.start_year)[-2:]}/{str(self.end_year)[-2:]}"
 
     @classmethod
-    def from_code(cls, code: str) -> "Season":
-        """Crée une instance de Season à partir d'un code de saison."""
-        try:
-            start_year, end_year = map(int, code.split("-"))
-            if end_year != start_year + 1:
-                raise ValueError(f"Code de saison invalide: {code}")
-            return cls(start_year=start_year)
-        except Exception as e:
-            raise ValueError(f"Code de saison invalide: {code}") from e
+    def from_code(cls, start_year: str) -> "Season":
+        """Crée une instance de Season à partir d'une année de début."""
+        if start_year.isdigit() and len(start_year) == 4:
+            return cls(start_year=int(start_year))
+        raise ValueError(f"Invalid start year for Season: {start_year}")
 
     def __str__(self) -> str:
         return self.code

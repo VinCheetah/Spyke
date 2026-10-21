@@ -17,14 +17,15 @@ def resolve_seasons(seasons: list[str]) -> list[Season]:
         split_season = season.split("/")
         assert len(split_season) == 2, f"Saison invalide: {season}"
         start_year, end_year = split_season
-        for year in (start_year, end_year):
-            if len(year) == 2:
-                year = "20" + year
-            assert len(year) == 4, f"Saison invalide: {season}"
+        if len(start_year) == 2:
+            start_year = f"20{start_year}"
+        if len(end_year) == 2:
+            end_year = f"20{end_year}"
+        assert len(start_year) == len(end_year) == 4, f"Saison invalide: {season}"
         assert start_year.isdigit() and end_year.isdigit(), f"Saison invalide: {season}"
         assert int(start_year) <= int(end_year), f"Saison invalide: {season}"
         resolved.extend(
-            list(Season.from_code(f"{start}/{start + 1}") for start in range(int(start_year), int(end_year)))
+            list(Season.from_code(f"{start}") for start in range(int(start_year), int(end_year)))
         )
     return resolved
 

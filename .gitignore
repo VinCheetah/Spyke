@@ -40,3 +40,5 @@ notebooks/
 # Database
 *.sqlite
 *.sqlite3
+
+spyke.db

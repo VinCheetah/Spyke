@@ -55,7 +55,7 @@ from spyke.cli.commands.debug_cmd import debug
 from spyke.cli.commands.import_cmd import import_data
 
 configure_logging(
-    level=logging.INFO,
+    level=logging.CRITICAL,
     log_file=settings.base_dir / f"logs/spyke_{strftime('%Y%m%d_%H%M%S')}.log",
 )
 # ── Commandes racines principales ──────────────────────────────────────────

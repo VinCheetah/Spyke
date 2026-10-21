@@ -168,8 +168,6 @@ class SourceHttpClient:
     ) -> HttpDocument:
         request_params = url_params_to_str(params)
         last_error: Exception | None = None
-
-        print(request_params)
         for attempt in range(self._retries + 1):
             try:
                 response = self._client.request(

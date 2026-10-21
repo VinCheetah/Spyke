@@ -31,6 +31,8 @@ from rich.text import Text
 
 from spyke.application.imports.clubs import ClubsImporter
 from spyke.application.imports.competitions import CompetitionImporter
+from spyke.application.imports.adressier import AdressierImporter
+from spyke.application.imports.calendar import CalendarImporter
 from spyke.cli.args import (
     AllEntitiesParam,
     ArchiveModeParam,
@@ -45,7 +47,7 @@ from spyke.cli.shared.arg_resolver import resolve_seasons
 from spyke.cli.shared.output_formatting import max_show
 from spyke.domain.entities.organisation import Season
 from spyke.domain.enums import ArchiveMode
-from spyke.infrastructure.ffvb.dto import ClubRecord, CompetitionRecord, EntityRecord
+from spyke.infrastructure.ffvb.dto import ClubRecord, CompetitionRecord, EntityRecord, TeamRecord, MatchRecord
 
 console = Console()
 
@@ -248,6 +250,34 @@ def import_data(
             items_count=len(competitions),
             items_unit="compétitions",
         )
+        # competition_importer.import_records(competitions)
+        print(len(competitions))
+        
+        calendar_importer = CalendarImporter(session=session, client=ffvb_client)
+        step_started = time.perf_counter()
+        matches: list[MatchRecord] = calendar_importer.get_matches(entities=entities, seasons=seasons)
+        timer.record_sub_step(
+            "referentials",
+            "matches",
+            "Matches FFVB",
+            time.perf_counter() - step_started,
+            items_count=len(matches),
+            items_unit="matches",
+        )
+        # calendar_importer.import_records(matches)
+
+        adressier_importer = AdressierImporter(session=session, client=ffvb_client)
+        step_started = time.perf_counter()
+        teams: list[TeamRecord] = adressier_importer.get_adressiers(entities=entities, competitions=competitions, seasons=seasons)
+        timer.record_sub_step(
+            "referentials",
+            "teams",
+            "Teams FFVB",
+            time.perf_counter() - step_started,
+            items_count=len(teams),
+            items_unit="teams",
+        )
+        # adressier_importer.import_records(teams)
 
     timer.render_summary(console)
 
@@ -271,16 +301,6 @@ def render_config_panel(
     config_grid.add_column(style="bold cyan", justify="right")
     config_grid.add_column(style="white")
 
-    pipeline_steps_display = "  →  ".join(
-        f"[bold cyan]{s.upper()}[/bold cyan]" if s in steps else f"[dim]{s.upper()}[/dim]"
-        for s in ["scrape", "download", "parse"]
-    )
-    config_grid.add_row(
-        "Pipeline :",
-        pipeline_steps_display,
-        "Mode :",
-        "[yellow]Aperçu (dry-run)[/yellow]" if dry_run else "[bold green]Exécution[/bold green]",
-    )
     config_grid.add_row(
         "Saison(s) :",
         f"[cyan]{saisons_display}[/cyan]",
