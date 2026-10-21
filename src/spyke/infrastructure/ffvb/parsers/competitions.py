@@ -17,8 +17,6 @@ class CompetitionParser(HttpDocumentParser[CompetitionRecord]):
     def parse(self, document: HttpDocument, entity_code: str, season: Season) -> list[CompetitionRecord]:
         competitions: list[CompetitionRecord] = []
         soup: BeautifulSoup = self.get_soup(document)
-        # Find the following :
-        # <td background="../images/bkrg.gif" class="lienblanc" align="left"><img src="../images/favorites.png" align="absmiddle" border="0"> Accès direct aux Compétitions du Comité Départemental</td>
         tag = soup.find("td", class_="lienblanc", align="left")
         if tag is None:
             logger.error(f"Competition access text not found in {document.url}")
@@ -42,19 +40,16 @@ class CompetitionParser(HttpDocumentParser[CompetitionRecord]):
                 if href is None:
                     logger.warning(f"Competition link not found in row: {row}")
                     continue
-                # Vérifie que href termine par "poule=" puis 3 caractères alphanumériques et ajoute à code ces trois caractères
-                # Fait en sorte de récupérer les paramètres poule, division et tour si ils existent:
-                # "vbspo_calendrier.php?saison=2021/2022&amp;codent=LIRA&amp;division=JMB&amp;tour=01&amp;poule=CD5"
-                # Récupère ces trois champs
                 code = match.group(1) if (match := re.search(r"poule=([A-Z0-9]{3})", href)) else None
                 tour = match.group(1) if (match := re.search(r"tour=([0-9]{2})", href)) else None
                 division = match.group(1) if (match := re.search(r"division=([A-Z0-9]{3})", href)) else None
                 if not competitions:
+                    competitions.append(
+                        CompetitionRecord(name="Unknown", entity_code=entity_code, season_start=season.start_year)
+                    )
                     logger.warning(
                         f"Competition found without a previous competition to attach to: {name} in {entity_code} for season {season.start_year}. Skipping this competition."
                     )
                     continue
-                if competitions[-1].pools is None:
-                    competitions[-1].pools = []
                 competitions[-1].pools.append(PouleRecord(name=name, code=code, tour=tour, division=division))
         return competitions

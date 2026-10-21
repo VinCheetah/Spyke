@@ -122,6 +122,17 @@ class FfvbClient:
             params["poule"] = pool_code
         return self.http.fetch(self.endpoints.calendar_export, params=params)
 
+    @archive(category=RawDataCategory.ADDRESSIER)
+    def fetch_addressier(self, entity_code: str, season: Season, pool_codes: list[str]) -> HttpDocument:
+        """Fetch the FFVB addressier for one entity and season."""
+        params = {
+            "wss_get_saison": season.code,
+            "codent": entity_code,
+            "typ_edition": "E",
+            "adr_poule[]": pool_codes,
+        }
+        return self.http.post(self.endpoints.clubs_adressier, params=params)
+
     def match_sheet_url(self, entity_code: str, season: Season, match_code: str) -> str:
         """Build the canonical FFVB FDME URL for a discovered match."""
         query = urlencode({"saison": season.code, "codent": entity_code, "codmatch": match_code})

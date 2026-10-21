@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import date as dt_date
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +15,19 @@ from pathlib import Path
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    ProgressColumn,
+    SpinnerColumn,
+    Task,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
+from rich.text import Text
 
 from spyke.application.imports.clubs import ClubsImporter
 from spyke.application.imports.competitions import CompetitionImporter
@@ -37,6 +52,137 @@ console = Console()
 IMPORT_STEPS = ("entities", "clubs", "competitions", "calendar", "matches")
 
 
+def format_duration(seconds: float) -> str:
+    """Formate une durée de façon lisible, y compris pour les tâches rapides."""
+    seconds = max(0.0, seconds)
+    if seconds < 1:
+        return f"{seconds * 1000:.0f} ms"
+    total_seconds = int(seconds)
+    minutes, remaining = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {minutes:02d} min {remaining:02d} s"
+    if minutes:
+        return f"{minutes} min {remaining:02d} s"
+    return f"{remaining} s"
+
+
+def format_rate(count: int, duration: float, unit: str) -> str:
+    """Retourne une cadence stable et lisible, sans division par zéro."""
+    if count <= 0 or duration <= 0:
+        return f"0 {unit}/s"
+    rate = count / duration
+    if rate >= 100:
+        value = f"{rate:.0f}"
+    elif rate >= 10:
+        value = f"{rate:.1f}"
+    else:
+        value = f"{rate:.2f}"
+    return f"{value} {unit}/s"
+
+
+class _RateColumn(ProgressColumn):
+    """Colonne Rich affichant la cadence instantanée d'une tâche."""
+
+    def render(self, task: Task) -> Text:
+        rate = task.speed
+        if rate is None or rate <= 0:
+            return Text("—", style="dim cyan")
+        return Text(f"{rate:.1f}/s", style="cyan")
+
+
+@contextmanager
+def make_progress(console: Console, *, refresh_per_second: float = 8) -> Iterator[Progress]:
+    """Construit la présentation de progression commune à toutes les étapes."""
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=None),
+        TaskProgressColumn(),
+        _RateColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        refresh_per_second=refresh_per_second,
+        transient=False,
+    )
+    with progress:
+        yield progress
+
+
+@dataclass(slots=True)
+class PipelineSubStep:
+    """Mesure d'une sous-étape du pipeline d'importation."""
+
+    stage: str
+    key: str
+    label: str
+    duration: float
+    items_count: int = 0
+    items_unit: str = "éléments"
+
+
+@dataclass(slots=True)
+class PipelineTimer:
+    """Collecte les métriques des étapes et affiche un bilan final homogène."""
+
+    started_at: float = field(default_factory=time.perf_counter)
+    sub_steps: list[PipelineSubStep] = field(default_factory=list)
+
+    def record_sub_step(
+        self,
+        stage: str,
+        key: str,
+        label: str,
+        duration: float,
+        *,
+        items_count: int = 0,
+        items_unit: str = "éléments",
+    ) -> None:
+        self.sub_steps.append(
+            PipelineSubStep(
+                stage=stage,
+                key=key,
+                label=label,
+                duration=max(0.0, duration),
+                items_count=max(0, items_count),
+                items_unit=items_unit,
+            )
+        )
+
+    @property
+    def duration(self) -> float:
+        return time.perf_counter() - self.started_at
+
+    def render_summary(self, output: Console = console) -> None:
+        """Affiche les durées et cadences réellement mesurées."""
+        if not self.sub_steps:
+            return
+        table = Table(box=box.SIMPLE_HEAVY, expand=True)
+        table.add_column("Étape", style="bold cyan")
+        table.add_column("Durée", justify="right")
+        table.add_column("Volume", justify="right")
+        table.add_column("Cadence", justify="right", style="green")
+        for step in self.sub_steps:
+            volume = f"{step.items_count} {step.items_unit}" if step.items_count else "—"
+            rate = format_rate(step.items_count, step.duration, step.items_unit)
+            table.add_row(step.label, format_duration(step.duration), volume, rate)
+        table.add_row(
+            "[bold]Total pipeline[/bold]",
+            f"[bold]{format_duration(self.duration)}[/bold]",
+            "",
+            "",
+        )
+        output.print(
+            Panel(
+                table,
+                title="[bold green]✓ Bilan de l'importation[/bold green]",
+                border_style="green",
+                box=box.ROUNDED,
+            )
+        )
+
+
 def import_data(
     entities: EntityParam = [],
     seasons: SeasonParam = [],
@@ -54,6 +200,7 @@ def import_data(
     from spyke.infrastructure.database.session import DatabaseSession
     from spyke.infrastructure.ffvb.client import FfvbClient
 
+    timer = PipelineTimer()
     seasons: list[Season] = resolve_seasons(seasons or [])
     entities_list: list[str] = entities or []
     render_config_panel(console, entities_list, seasons, list(IMPORT_STEPS), limit, dry_run, force)
@@ -61,19 +208,48 @@ def import_data(
 
     with DatabaseSession() as session:
         entities_importer = EntitiesImporter(session=session, client=ffvb_client)
+        step_started = time.perf_counter()
         entities: list[EntityRecord] = entities_importer.get_filtered_entities(entities_list, all_entities)
         entities_importer.enrich_entities_codes(entities)
         entities_importer.enrich_entities(entities)
+        timer.record_sub_step(
+            "referentials",
+            "entities",
+            "Entités FFVB",
+            time.perf_counter() - step_started,
+            items_count=len(entities),
+            items_unit="entités",
+        )
         # entities_importer.import_records(entities)
 
         club_importer = ClubsImporter(session=session, client=ffvb_client)
+        step_started = time.perf_counter()
         clubs: list[ClubRecord] = club_importer.get_clubs(ffvb_client, entities)
+        timer.record_sub_step(
+            "referentials",
+            "clubs",
+            "Clubs FFVB",
+            time.perf_counter() - step_started,
+            items_count=len(clubs),
+            items_unit="clubs",
+        )
         # club_importer.import_records(clubs)
 
         competition_importer = CompetitionImporter(session=session, client=ffvb_client)
+        step_started = time.perf_counter()
         competitions: list[CompetitionRecord] = competition_importer.get_competitions(
             entities=entities, seasons=seasons
         )
+        timer.record_sub_step(
+            "referentials",
+            "competitions",
+            "Compétitions FFVB",
+            time.perf_counter() - step_started,
+            items_count=len(competitions),
+            items_unit="compétitions",
+        )
+
+    timer.render_summary(console)
 
 
 def render_config_panel(

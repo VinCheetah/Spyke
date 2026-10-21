@@ -14,7 +14,7 @@ T_RecordType = TypeVar("T_RecordType", bound=Record)
 class BaseParser(Generic[T_RecordType], ABC):
     def clean(self, record: T_RecordType) -> T_RecordType:
         """Clean a record by normalizing its string attributes."""
-        pass
+        raise NotImplementedError("Subclasses must implement the clean method.")
 
     def parse(self, document: Any) -> list[T_RecordType]:
         """Parse a document and return a list of records.
@@ -22,7 +22,7 @@ class BaseParser(Generic[T_RecordType], ABC):
         Args:
             document (HttpDocument): The document to parse.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement the parse method.")
 
     def parse_record(self, document: Any) -> T_RecordType:
         """Parse a document and return a single record.
@@ -30,7 +30,7 @@ class BaseParser(Generic[T_RecordType], ABC):
         Args:
             document (HttpDocument): The document to parse.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement the parse_record method.")
 
     def enrich(self, records: list[T_RecordType], document: Any) -> None:
         """Enrich a record with additional details from a document.
@@ -42,7 +42,7 @@ class BaseParser(Generic[T_RecordType], ABC):
         Returns:
             list[Record]: The enriched records.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement the enrich method.")
 
     @staticmethod
     def _clean_str(val: str | None) -> str | None:
@@ -58,6 +58,20 @@ class BaseParser(Generic[T_RecordType], ABC):
             return None
         cleaned = val.strip()
         return cleaned if cleaned else None
+
+    def _clean_int(self, val: str | None) -> int | None:
+        """Clean a string and convert it to an integer, returning None if empty or invalid.
+
+        Args:
+            val (str | None): The string to clean and convert.
+
+        Returns:
+            int | None: The cleaned integer, or None if the string is empty or invalid.
+        """
+        cleaned_str = self._clean_str(val)
+        if cleaned_str and cleaned_str.isdigit():
+            return int(cleaned_str)
+        return None
 
     @staticmethod
     def clean_text(element: Tag | None) -> str | None:
@@ -78,6 +92,7 @@ class HttpDocumentParser(BaseParser[T_RecordType]):
         Args:
             document (HttpDocument): The document to parse.
         """
+        raise NotImplementedError("Subclasses must implement the parse method.")
 
     def enrich(self, records: list[T_RecordType], document: HttpDocument) -> None:
         """Enrich a record with additional details from a document.
@@ -150,3 +165,17 @@ class HttpDocumentParser(BaseParser[T_RecordType]):
         if (grandparent := parent.parent) is None:
             return None
         return grandparent
+
+
+class CsvParser(HttpDocumentParser[T_RecordType]):
+    def _safe_get(self, row: list[str], index: int, default: str | None = None) -> str | None:
+        """Safely get a value from a CSV row by index."""
+        if index < 0 or index >= len(row):
+            return default
+        return self._clean_str(row[index]) or default
+
+    def _safe_get_int(self, row: list[str], index: int, default: int | None = None) -> int | None:
+        """Safely get an integer value from a CSV row by index."""
+        if index < 0 or index >= len(row):
+            return default
+        return self._clean_int(row[index]) or default

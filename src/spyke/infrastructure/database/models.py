@@ -271,3 +271,16 @@ class ImportErrorModel(Base):
     entity_type: Mapped[str | None] = mapped_column(String(64))
     external_id: Mapped[str | None] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class TeamModel(Base):
+    __tablename__ = "team"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("club.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    club: Mapped[ClubModel] = relationship(back_populates="teams")
+    team_seasons: Mapped[list["TeamSeasonModel"]] = relationship(back_populates="team")
+
+    __table_args__ = (UniqueConstraint("club_id", "name", name="uq_team_club_name"),)

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from spyke.domain.enums import Echelon, RoleReferee
@@ -86,7 +86,7 @@ class CompetitionRecord(Record):
     name: str
     entity_code: str
     season_start: int
-    pools: list[PouleRecord] | None = None
+    pools: list[PouleRecord] = field(default_factory=list)
 
 
 @dataclass
@@ -105,3 +105,28 @@ class MatchRecord(Record):
     venue: str | None = None
     referees: list[RefereeRecord] | None = None
     marqueurs: list[RefereeRecord] | None = None
+
+
+@dataclass
+class VenueRecord(Record):
+    name: str
+    address: list[str] | None = None
+    city: str | None = None
+    phone_number: str | None = None
+    surface: str | None = None
+    capacity: int | None = None
+    transport: str | None = None
+
+
+@dataclass
+class TeamRecord(Record):
+    club_code: str | None = None
+    name: str | None = None
+    coach: str | None = None
+    assistant_coach: str | None = None
+    venues: list[VenueRecord] | None = None
+    correspondant: str | None = None
+    correspondant_address: list[str] | None = None
+    correspondant_email: str | None = None
+    correspondant_phone: str | None = None
+    correspondant_portable: str | None = None

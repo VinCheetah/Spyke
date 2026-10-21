@@ -14,8 +14,8 @@ from spyke.domain.enums import RawDataCategory
 
 logger = logging.getLogger(__name__)
 
-ParameterValue = str | Entity | Season
-ParameterMapping = Mapping[str, ParameterValue]
+ParameterValue = str | list[str] | Entity | Season
+ParameterMapping = Mapping[str, ParameterValue] | list[tuple[str, ParameterValue]]
 
 
 class SourceHttpError(RuntimeError):
@@ -31,7 +31,7 @@ class HttpDocument:
     status_code: int
     content_type: str | None
     etag: str | None
-    params: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    params: dict[str, str | list[str]] = field(default_factory=lambda: dict[str, str | list[str]]())
     last_modified: str | None = None
 
     @classmethod
@@ -44,6 +44,7 @@ class HttpDocument:
             RawDataCategory.ENTITIES_CODE: ("entities/code", []),
             RawDataCategory.ENTITY: ("entities", ["entity_type", "entity_code"]),
             RawDataCategory.COMPETITIONS: ("competitions", ["season", "entity_code"]),
+            RawDataCategory.ADDRESSIER: ("adressier", ["season", "entity_code"]),
         }
         try:
             base, components = category_paths[category]
@@ -168,6 +169,7 @@ class SourceHttpClient:
         request_params = url_params_to_str(params)
         last_error: Exception | None = None
 
+        print(request_params)
         for attempt in range(self._retries + 1):
             try:
                 response = self._client.request(
@@ -226,10 +228,12 @@ class SourceHttpClient:
         )
 
 
-def url_params_to_str(params: ParameterMapping | None) -> dict[str, str] | None:
+def url_params_to_str(params: ParameterMapping | None) -> dict[str, str | list[str]] | None:
     """Convert domain values to strings accepted by ``httpx``."""
     if params is None:
         return None
     if isinstance(params, Mapping):
-        return {key: str(value) for key, value in params.items()}
+        return {
+            key: ([str(v) for v in value] if isinstance(value, list) else str(value)) for key, value in params.items()
+        }
     return {key: str(value) for key, value in params}

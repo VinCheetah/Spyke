@@ -163,6 +163,7 @@ class RawDataCategory(StrEnum):
     ENTITIES = "ENTITIES"
     ENTITIES_CODE = "ENTITIES_CODE"
     ENTITY = "ENTITY"
+    ADDRESSIER = "ADDRESSIER"
 
 
 class ArchiveMode(StrEnum):
